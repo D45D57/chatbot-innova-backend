@@ -1,51 +1,92 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import prisma from '../lib/prisma';
+import { EstadoUsuario } from '@prisma/client';
+import 'multer';
 
-export interface AuthRequest extends Request {
-  usuarioId?: number;
-  usuarioRol?: string;
+export interface TokenPayload {
+  id: string;
+  email: string;
+  rol: string;
 }
 
-// Middleware para rutas públicas que también pueden recibir token
-// Si hay token válido → usa req.usuarioId del token
-// Si no hay token → acepta ?usuarioId= como query param (cliente anónimo)
-export const optionalToken = (req: AuthRequest, _res: Response, next: NextFunction): void => {
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    try {
-      const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret') as { id: number; rol: string };
-      req.usuarioId = payload.id;
-      req.usuarioRol = payload.rol;
-    } catch {
-      // token inválido → ignorar, continuar sin usuarioId
+declare global {
+  namespace Express {
+    interface Request {
+      usuario?: TokenPayload;
+      file?: Express.Multer.File;
     }
   }
-  if (!req.usuarioId && req.query.usuarioId) {
-    req.usuarioId = parseInt(req.query.usuarioId as string);
+}
+
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.error('FATAL ERROR: JWT_SECRET no está configurado en el archivo .env');
+  process.exit(1); 
+}
+
+export const verificarToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Acceso denegado. No se proporcionó un token válido.' });
+      return;
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: decoded.id },
+      select: { estado: true },
+    });
+ 
+    if (!usuario || usuario.estado !== EstadoUsuario.ACTIVO) {
+      res.status(401).json({ error: 'Sesión inválida. La cuenta fue eliminada o desactivada.' });
+      return;
+    }
+
+    req.usuario = {
+      id: decoded.id,
+      email: decoded.email,
+      rol: decoded.rol
+    };
+
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Token inválido o expirado. Por favor, inicie sesión nuevamente.' });
   }
-  next();
 };
 
-export const verificarToken = (req: AuthRequest, res: Response, next: NextFunction): void => {
-  const authHeader = req.headers.authorization;
+export const verificarTokenOpcional = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Token requerido' });
-    return;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next();
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: decoded.id },
+      select: { estado: true },
+    });
+
+    if (usuario && usuario.estado === EstadoUsuario.ACTIVO){
+    req.usuario = {
+      id: decoded.id,
+      email: decoded.email,
+      rol: decoded.rol
+    };
   }
 
-  const token = authHeader.split(' ')[1];
-
-  try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret') as {
-      id: number;
-      rol: string;
-    };
-    req.usuarioId = payload.id;
-    req.usuarioRol = payload.rol;
     next();
-  } catch {
-    res.status(401).json({ error: 'Token inválido o expirado' });
+  } catch (error) {
+    next();
   }
 };

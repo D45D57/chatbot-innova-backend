@@ -1,21 +1,25 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
 import app from './app';
-import prisma from './config/db';
+import prisma from './lib/prisma';
 
 const PORT = process.env.PORT || 3000;
 
-async function main() {
+async function startServer() {
   try {
     await prisma.$connect();
-    console.log('Conectado a PostgreSQL (Supabase) via Prisma');
-  } catch {
-    console.warn('No se pudo conectar a la base de datos. Asegúrate de configurar DATABASE_URL en .env');
-  }
+    console.log('Conectado a la base de datos PostgreSQL (Neon) exitosamente.');
 
-  app.listen(PORT, () => {
-    console.log(`Servidor corriendo en http://localhost:${PORT}`);
-    console.log(`Swagger UI disponible en http://localhost:${PORT}/api-docs`);
-  });
+    app.listen(Number(PORT), '0.0.0.0', () => {
+      console.log(`Servidor backend escuchando en puerto ${PORT}`);
+      console.log(`Documentación disponible en /api-docs`);
+    });
+  } catch (error) {
+    console.error('Error crítico al iniciar el servidor:', error);
+    process.exit(1);
+  }
 }
 
-main();
+startServer();
