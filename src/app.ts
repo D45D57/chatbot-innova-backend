@@ -15,6 +15,7 @@ import prisma from './lib/prisma';
 import { corsOptions } from './lib/cors.config';
 import publicRoutes from './routes/public.routes';
 import consultationRoutes from './routes/consultation.routes';
+import chatbotRoutes from './routes/chatbot.routes';
 
 const app = express();
 
@@ -78,6 +79,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/telemetry', telemetryRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/consultations', consultationRoutes);
+app.use('/api/chatbot', chatbotRoutes);
 app.use(errorHandler);
 
 export default app;
