@@ -133,6 +133,8 @@ model Producto {
   fechaCreacion      DateTime           @default(now())
   fechaActualizacion DateTime           @updatedAt
   consultas          ConsultaProducto[]
+
+  @@unique([botId, nombre])
 }
 
 model SesionChat {
@@ -172,10 +174,17 @@ enum EstadoChat {
 }
 
 enum EstadoConsulta {
+  INICIADA
   NUEVA
   EN_PROCESO
   RESUELTA
   CERRADA
+}
+
+enum MotivoCierre {
+  INACTIVIDAD
+  RESOLUCION_EMPRENDEDOR
+  RESOLUCION_CLIENTE
 }
 
 enum CerradaPor {
@@ -242,10 +251,11 @@ model Consulta {
   botId              String
   bot                ConfiguracionBot   @relation(fields: [botId], references: [id], onDelete: Cascade)
   sessionId   String?
-  estado             EstadoConsulta     @default(NUEVA)
+  estado             EstadoConsulta     @default(INICIADA)
   derivada           Boolean            @default(false)
   cerradaPor         CerradaPor?
   tipoConsulta       String?
+  motivoCierre       MotivoCierre?
   canal              String             @default("web")
   asunto             String?
   descripcion        String?            @db.Text

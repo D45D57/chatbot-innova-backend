@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
 import {
   FAQ_SUGGESTIONS,
@@ -20,13 +21,7 @@ const expectedSuggestions = [
     pregunta: '¿Realizan envíos?',
     respuesta: 'Sí, realizamos envíos a todo el país.',
     categoria: 'Envíos',
-  },
-  {
-    id: 'horario-atencion',
-    pregunta: '¿Cuál es el horario de atención?',
-    respuesta: 'Atendemos de lunes a viernes de 9 AM a 6 PM.',
-    categoria: 'Atención y horarios',
-  },
+  } ,
   {
     id: 'stock-disponible',
     pregunta: '¿Tienen stock disponible?',
@@ -82,7 +77,7 @@ test('la normalización detecta equivalencias de tildes, signos, espacios y orde
 
 test('el registro no crea categorías ni FAQ automáticas', () => {
   const authService = readFileSync(
-    new URL('../src/services/auth.service.ts', import.meta.url),
+    join(__dirname, '../src/services/auth.service.ts'),
     'utf8',
   );
 

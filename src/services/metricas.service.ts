@@ -1,5 +1,11 @@
 import prisma from '../lib/prisma';
 
+const ZONA_HORARIA_ARGENTINA = 'America/Argentina/Buenos_Aires';
+
+function obtenerFechaLocal(fecha: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: ZONA_HORARIA_ARGENTINA }).format(fecha);
+}
+
 export async function obtenerResumenDashboard(usuarioId: string) {
   const bot = await prisma.configuracionBot.findUnique({ where: { usuarioId } });
   if (!bot) throw new Error('BOT_NOT_FOUND');
@@ -12,9 +18,16 @@ export async function obtenerResumenDashboard(usuarioId: string) {
     totalPresupuestos
   ] = await prisma.$transaction([
     prisma.consulta.count({ where: { botId } }),
-    // Ajustá 'EN_PROCESO' al estado que uses para "Requieren seguimiento"
     prisma.consulta.count({ where: { botId, estado: 'EN_PROCESO', derivada: true } }), 
-    prisma.consulta.count({ where: { botId, tipoConsulta: 'BOT' } }),
+    prisma.consulta.count({
+      where: {
+        botId,
+        OR: [
+          { estado: 'RESUELTA', cerradaPor: 'BOT' },
+          { tipoConsulta: 'PRESUPUESTO', estado: 'NUEVA' },
+        ],
+      },
+    }),
     prisma.presupuesto.count({ where: { consulta: { botId } } })
   ]);
 
@@ -99,14 +112,14 @@ export async function obtenerEstadisticasMetricas(usuarioId: string) {
   }
 
   // Cargamos el array de la semana con los datos reales
-  consultasUltimosDias.forEach(c => {
-    const fechaStr = c.fechaCreacion.toISOString().split('T')[0];
+   consultasUltimosDias.forEach(c => {
+    const fechaStr = obtenerFechaLocal(c.fechaCreacion);
     const diaEncontrado = actividadSemanal.find(d => d.fechaString === fechaStr);
     if (diaEncontrado) diaEncontrado.consultas += 1;
   });
-
+ 
   presupuestosUltimosDias.forEach(p => {
-    const fechaStr = p.fechaCreacion.toISOString().split('T')[0];
+    const fechaStr = obtenerFechaLocal(p.fechaCreacion);
     const diaEncontrado = actividadSemanal.find(d => d.fechaString === fechaStr);
     if (diaEncontrado) diaEncontrado.presupuestos += 1;
   });

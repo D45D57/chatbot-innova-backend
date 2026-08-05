@@ -42,6 +42,8 @@ export async function generarPdfDesdeBaseDeDatos(presupuestoId: number): Promise
     nombre: configNegocio.nombreNegocio || 'Negocio sin nombre', 
     telefono: configNegocio.telefono || '',
     horario: configNegocio.horarioAtencion || 'Horario a coordinar',
+    colorPrimario: configNegocio.colorPrimario || '#13A8A2',
+    colorSecundario: configNegocio.colorSecundario || '#1372A8',
   };
 
   const items = presupuesto.detalle as unknown as ItemPresupuesto[];
@@ -104,7 +106,7 @@ async function gestionarSubidaNube(presupuestoId: number, rutaPdf: string, resou
   
 export async function crearYEnviarPresupuesto(consultaId: string, items: ItemPresupuesto[]) {
   
-  const requiereCotizacion = items.some(item => !item.precioUnitario || item.precioUnitario === 0);
+  const requiereCotizacion = items.some(item => !item.precioUnitario || item.requiereCotizacion === true);
 
   const estadoInicial = requiereCotizacion ? 'PENDIENTE' : 'ENVIADO';
   
@@ -136,19 +138,27 @@ export async function cotizarYActualizarPresupuesto(
   presupuestoId: number, 
   itemsCotizados: ItemPresupuesto[]
 ): Promise<string> {
-  const nuevoTotalCalculado = itemsCotizados.reduce((suma, item) => {
+  const itemsFinales: ItemPresupuesto[] = itemsCotizados.map((item) => ({
+    ...item,
+    requiereCotizacion: false,
+  }));
+
+  const nuevoTotalCalculado = itemsFinales.reduce((suma, item) => {
     return suma + item.cantidad * item.precioUnitario;
   }, 0);
 
   await prisma.presupuesto.update({
     where: { id: presupuestoId },
     data: {
-      detalle: itemsCotizados as unknown as Prisma.InputJsonArray,
+      detalle: itemsFinales as unknown as Prisma.InputJsonArray,
       total: nuevoTotalCalculado,
       estado: 'ENVIADO',
       validezDias: diasValidez,
       fechaVencimiento: fechaVencimiento,
-      origen: 'EMPRENDEDOR'
+      origen: 'EMPRENDEDOR',
+      consulta: { update: { estado: 'RESUELTA', 
+                            fechaActualizacion: new Date() 
+                          } }
     }
   });
 
@@ -245,26 +255,34 @@ export async function actualizarEstadoPresupuesto(
     await prisma.consulta.update({
       where: { id: consultaId },
       data: {
-        estado: 'CERRADA',
+        estado: 'RESUELTA',
         cerradaPor: 'EMPRENDEDOR',
         fechaCierre: new Date(),
       },
     });
+  } else if (nuevoEstado === 'RECHAZADO') {
+    const consultaId = presupuestoExistente.consulta.id;
+    await prisma.consulta.update({
+      where: { id: consultaId },
+      data: {
+        estado: 'EN_PROCESO',
+      },
+    });
+  }
  
     if (presupuestoExistente.consulta.sessionId) {
-      try {
-        await prisma.sesionChat.update({
-          where: {
-            botId_sessionId: {
-              botId: bot.id,
-              sessionId: presupuestoExistente.consulta.sessionId,
-            },
+    try {
+      await prisma.sesionChat.update({
+        where: {
+          botId_sessionId: {
+            botId: bot.id,
+            sessionId: presupuestoExistente.consulta.sessionId,
           },
-          data: { estado: 'BOT_ACTIVO', contexto: 'INICIO'  },
-        });
-      } catch (error) {
-        console.error(`No se pudo reactivar el bot para la consulta ${consultaId}:`, error);
-      }
+        },
+        data: { estado: 'BOT_ACTIVO', contexto: 'INICIO' },
+      });
+    } catch (error) {
+      console.error(`No se pudo reactivar el bot para la consulta`, error);
     }
   }
 
@@ -296,7 +314,9 @@ export async function obtenerPresupuestoPorId(usuarioId: string, presupuestoId: 
   if (presupuesto.estado === 'PENDIENTE') {
     const presupuestoActualizado = await prisma.presupuesto.update({
       where: { id: presupuestoId },
-      data: { estado: 'EN_PROCESO' },
+      data: { estado: 'EN_PROCESO',
+              consulta: { update: { estado: 'EN_PROCESO' } } 
+       },
       include: {
         consulta: {
           include: { lead: true },
@@ -341,6 +361,7 @@ export async function crearPresupuestoPublico(input: CrearPresupuestoPublicoInpu
       nombre: producto.nombre,
       cantidad: item.cantidad,
       precioUnitario: producto.requiereCotizacion ? 0 : Number(producto.precio),
+      requiereCotizacion: producto.requiereCotizacion,
     };
   });
 
@@ -364,31 +385,18 @@ export async function crearPresupuestoPublico(input: CrearPresupuestoPublicoInpu
     data: requiereCotizacionManual
       ? {
           derivada: true,
-          estado: 'EN_PROCESO',
+          estado: 'NUEVA',
           tipoConsulta: 'COTIZACION',
           asunto: 'Solicitud de Presupuesto/Cotización',
           descripcion,
         }
       : {
-          estado: 'CERRADA',
-          cerradaPor: 'BOT',
-          fechaCierre: new Date(),
+          estado: 'NUEVA',
           tipoConsulta: 'PRESUPUESTO',
           asunto: 'Solicitud de Presupuesto/Cotización',
           descripcion,
         },
   });
-
-  if (requiereCotizacionManual && consulta.sessionId) {
-    try {
-      await prisma.sesionChat.update({
-        where: { botId_sessionId: { botId: bot.id, sessionId: consulta.sessionId } },
-        data: { estado: 'HUMANO_ATENDIENDO' },
-      });
-    } catch (error) {
-      console.error(`No se pudo pasar a HUMANO_ATENDIENDO la sesión de la consulta ${consultaId}:`, error);
-    }
-  }
 
   return {
     presupuesto: presupuestoCreado,

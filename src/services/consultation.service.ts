@@ -12,6 +12,7 @@ type ConsultationWithMessages = Prisma.ConsultaGetPayload<{ include: typeof cons
 
 const statusToApi = (estado: EstadoConsulta) => {
  const map: Record<EstadoConsulta, string> = {
+    INICIADA: 'iniciada',
     NUEVA: 'nueva',
     EN_PROCESO: 'en_proceso',
     RESUELTA: 'resuelta',
@@ -23,6 +24,8 @@ const statusToApi = (estado: EstadoConsulta) => {
 
 const statusToDb = (estado: UpdateConsultationStatusInput['estado']): EstadoConsulta => {
   const map: Record<string, EstadoConsulta> = {
+    
+    iniciada: EstadoConsulta.INICIADA,
     nueva: EstadoConsulta.NUEVA,
     en_proceso: EstadoConsulta.EN_PROCESO,
     resuelta: EstadoConsulta.RESUELTA,
@@ -86,6 +89,19 @@ export const obtenerConsulta = async (usuarioId: string, consultaId: string) => 
     include: consultationInclude,
   });
   if (!consulta) throw new Error('CONSULTATION_NOT_FOUND');
+
+  await prisma.presupuesto.updateMany({
+    where: { consultaId: consulta.id, estado: 'PENDIENTE' },
+    data: { estado: 'EN_PROCESO' },
+  })
+  if (consulta.estado === EstadoConsulta.NUEVA) {
+    const consultaActualizada = await prisma.consulta.update({
+      where: { id: consulta.id },
+      data: { estado: EstadoConsulta.EN_PROCESO },
+      include: consultationInclude,
+    });
+    return toConsultationDto(consultaActualizada);
+  }
   return toConsultationDto(consulta);
 };
 
@@ -233,7 +249,7 @@ export const actualizarContactoPublico = async (
       where: { id: consultaId },
       data: {
         derivada: true,
-        estado: EstadoConsulta.EN_PROCESO,
+        estado: EstadoConsulta.NUEVA,
         tipoConsulta: 'DERIVAR_HUMANO',
         asunto: 'Derivación de Chatbot',
       },
