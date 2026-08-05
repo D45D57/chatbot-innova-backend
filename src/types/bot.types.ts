@@ -11,6 +11,15 @@ export interface UpdateBotInput {
   mensajeBienvenida?: string;
   mensajeFueraHorario?: string;
   derivacionAutomatica?: boolean;
+  colorPrimario?: string;
+  colorSecundario?: string;
+  ip?: string;
+  dispositivo?: string;
+}
+
+export interface UpdateSlugInput {
+  usuarioId: string;
+  slug: string;
   ip?: string;
   dispositivo?: string;
 }

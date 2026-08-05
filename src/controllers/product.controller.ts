@@ -3,14 +3,23 @@ import * as productService from '../services/product.service';
 import { GetProductsInput } from '../types/product.types';
 
 const getRequestMeta = (req: Request) => ({
-  ip: req.ip ?? req.socket.remoteAddress,
-  dispositivo: req.headers['user-agent'] as string | undefined,
+  ip: req.ip || req.socket.remoteAddress || 'IP Desconocida',
+  dispositivo: req.headers['user-agent'] || 'Dispositivo Desconocido',
 });
 
 export const createProduct = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     if (req.file) {
       req.body.urlImagen = req.file.path;
+    }
+
+    if (req.body.activo === 'true') req.body.activo = true;
+    if (req.body.activo === 'false') req.body.activo = false;
+
+    if (!req.body.stock || req.body.stock === 'null' || req.body.stock === 'undefined') {
+      req.body.stock = 0;
+    } else {
+      req.body.stock = Number(req.body.stock);
     }
 
     const producto = await productService.crearProducto({
@@ -21,9 +30,15 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
 
     res.status(201).json({ success: true, message: 'Producto creado con éxito.', producto });
   } catch (error: unknown) {
-    if (error instanceof Error && error.message === 'BOT_NOT_FOUND') {
-      res.status(404).json({ success: false, error: 'Configuración de bot no encontrada.' });
-      return;
+    if (error instanceof Error) {
+      if (error.message === 'BOT_NOT_FOUND') {
+        res.status(404).json({ success: false, error: 'Configuración de bot no encontrada.' });
+        return;
+      }
+      if (error.message === 'PRODUCT_ALREADY_EXISTS') {
+        res.status(409).json({ success: false, error: 'Ya existe un producto con este nombre en tu catálogo.' });
+        return;
+      }
     }
     next(error);
   }
@@ -38,6 +53,25 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     if (error instanceof Error && error.message === 'BOT_NOT_FOUND') {
       res.status(404).json({ success: false, error: 'Configuración de bot no encontrada.' });
       return;
+    }
+    next(error);
+  }
+};
+
+export const getProduct = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const producto = await productService.obtenerProducto(req.usuario!.id, req.params.id);
+    res.status(200).json({ success: true, producto });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.message === 'BOT_NOT_FOUND') {
+        res.status(404).json({ success: false, error: 'Configuración de bot no encontrada.' });
+        return;
+      }
+      if (error.message === 'PRODUCT_NOT_FOUND') {
+        res.status(404).json({ success: false, error: 'El producto no existe o no pertenece a tu catálogo.' });
+        return;
+      }
     }
     next(error);
   }
@@ -65,6 +99,14 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
       }
       if (error.message === 'PRODUCT_NOT_FOUND') {
         res.status(404).json({ success: false, error: 'El producto no existe o no pertenece a tu catálogo.' });
+        return;
+      }
+      if (error.message === 'FIXED_PRICE_REQUIRED') {
+        res.status(400).json({ success: false, error: 'Los productos con precio fijo deben tener un precio mayor a 0.' });
+        return;
+      }
+      if (error.message === 'PRODUCT_ALREADY_EXISTS') {
+        res.status(409).json({ success: false, error: 'Ya existe un producto con este nombre en tu catálogo.' });
         return;
       }
     }

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
 import { EstadoUsuario } from '@prisma/client';
+import 'multer';
 
 export interface TokenPayload {
   id: string;
@@ -13,6 +14,7 @@ declare global {
   namespace Express {
     interface Request {
       usuario?: TokenPayload;
+      file?: Express.Multer.File;
     }
   }
 }
@@ -59,7 +61,11 @@ export const verificarToken = async (req: Request, res: Response, next: NextFunc
   }
 };
 
-export const verificarTokenOpcional = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export interface AuthRequest extends Request {
+  usuarioId?: string;
+}
+
+export const verificarTokenOpcional = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -82,7 +88,11 @@ export const verificarTokenOpcional = async (req: Request, res: Response, next: 
       rol: decoded.rol
     };
   }
-
+  const queryUsuarioId = req.query.usuarioId as string;
+  
+  if (queryUsuarioId) {
+    req.usuarioId = queryUsuarioId;
+  }
     next();
   } catch (error) {
     next();

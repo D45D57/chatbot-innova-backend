@@ -1,16 +1,5 @@
 import { z } from 'zod';
 
-const precioField = z
-  .number({ error: 'El precio es obligatorio'})
-  .positive({ error: 'El precio debe ser mayor a 0' })
-  .multipleOf(0.01, { error: 'El precio no puede tener más de 2 decimales' });
-
-const stockField = z
-  .number({ error: 'El stock debe ser un número' })
-  .int({ error: 'El stock debe ser un número entero' })
-  .min(0, { error: 'El stock no puede ser negativo' })
-  .default(0);
-
   const uuidField = (label: string) =>
   z.uuid({
     error: (issue) =>
@@ -27,21 +16,53 @@ export const createProductSchema = z.object({
     .max(200, { error: 'El nombre no puede superar los 200 caracteres' }),
 
   descripcion: z
-    .string({ error: 'La descripción es obligatoria' })
+    .string()
     .trim()
     .max(2000, { error: 'La descripción no puede superar los 2000 caracteres' })
     .optional(),
+  
+  requiereCotizacion: z.preprocess((val) => {
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    return val;
+  }, z.boolean().default(false)),
 
-  precio: precioField,
+  precio: z.coerce
+    .number({ error: 'El precio debe ser un número' })
+    .min(0, { message: 'El precio no puede ser negativo' })
+    .optional()
+    .or(z.literal('')),
 
-  stock: stockField,
+  stock: z.preprocess(
+    (val) => {
+      const convertido = Number(val);
+      return isNaN(convertido) ? 0 : convertido;
+    },
+    z.number()
+     .min(0, { message: 'El stock no puede ser negativo' })
+     .default(0)
+  ),
 
   urlImagen: z
     .url({ error: 'La URL de la imagen no es válida' })
     .optional()
     .or(z.literal('')),
 
-  activo: z.boolean().default(true),
+  activo: z.preprocess((val) => {
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    return val;
+  }, z.boolean().default(true)),
+  })
+.refine((data) => {
+  if (!data.requiereCotizacion) {
+    const precioNum = Number(data.precio);
+    return !isNaN(precioNum) && precioNum > 0;
+  }
+  return true; 
+}, {
+  message: "Si el producto no es 'A convenir', debes ingresar un precio mayor a 0",
+  path: ["precio"], 
 });
 
 export const updateProductSchema = z.object({
@@ -53,15 +74,41 @@ export const updateProductSchema = z.object({
     .optional(),
 
   descripcion: z
-    .string({ error: 'La descripción es obligatoria' })
+    .string()
     .trim()
     .max(2000, { error: 'La descripción no puede superar los 2000 caracteres' })
     .optional()
     .nullable(), // permite poner null para borrar la descripción
 
-  precio: precioField.optional(),
+  requiereCotizacion: z.preprocess((val) => {
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    return val;
+  }, z.boolean().optional()),
 
-  stock: stockField.optional(),
+  precio: z.preprocess(
+    (val) => {
+      if (val === undefined || val === null || val === '') return undefined;
+      const convertido = Number(val);
+      return isNaN(convertido) ? val : convertido;
+    },
+    z.number({ error: 'El precio debe ser un número' })
+     .positive({ error: 'El precio debe ser mayor a 0' })
+     .multipleOf(0.01, { error: 'El precio no puede tener más de 2 decimales' })
+     .optional()
+  ),
+
+  stock: z.preprocess(
+    (val) => {
+      if (val === undefined || val === null || val === '') return undefined;
+      const convertido = Number(val);
+      return isNaN(convertido) ? val : convertido;
+    },
+    z.number({ error: 'El stock debe ser un número' })
+     .int({ error: 'El stock debe ser un número entero' })
+     .min(0, { error: 'El stock no puede ser negativo' })
+     .optional()
+  ),
 
   urlImagen: z
     .url({ error: 'La URL de la imagen no es válida' })
@@ -69,7 +116,12 @@ export const updateProductSchema = z.object({
     .nullable()
     .or(z.literal('')),
 
-  activo: z.boolean().optional(),
+  activo: z.preprocess((val) => {
+    if (val === undefined || val === null || val === '') return undefined;
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    return val;
+  }, z.boolean().optional()),
 }).refine(
   (data) => Object.keys(data).length > 0,
   { error: 'Debes enviar al menos un campo para actualizar' }

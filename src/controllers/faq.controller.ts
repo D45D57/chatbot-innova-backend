@@ -1,21 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import * as faqService from '../services/faq.service';
 import { GetFaqsInput } from '../types/faq.types';
+import { DUPLICATE_FAQ_MESSAGE } from '../utils/normalizeFaqQuestion';
 
 const getRequestMeta = (req: Request) => ({
-  ip: req.ip ?? req.socket.remoteAddress,
-  dispositivo: req.headers['user-agent'] as string | undefined,
+  ip: req.ip || req.socket.remoteAddress || 'IP Desconocida',
+  dispositivo: req.headers['user-agent'] || 'Dispositivo Desconocido',
 });
 
 export const createFAQ = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const faq = await faqService.crearFAQ({
+    const { posibleDuplicado, ...faq } = await faqService.crearFAQ({
       usuarioId: req.usuario!.id,
       ...req.body,
       ...getRequestMeta(req),
     });
 
-    res.status(201).json({ success: true, message: 'Pregunta creada con éxito.', faq });
+    res.status(201).json({ success: true, message: 'Pregunta creada con éxito.', faq, posibleDuplicado });
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.message === 'BOT_NOT_FOUND') {
@@ -24,6 +25,10 @@ export const createFAQ = async (req: Request, res: Response, next: NextFunction)
       }
       if (error.message === 'CATEGORY_NOT_FOUND') {
         res.status(404).json({ success: false, error: 'La categoría especificada no existe o no pertenece a tu bot.' });
+        return;
+      }
+      if (error.message === 'FAQ_DUPLICATE') {
+        res.status(409).json({ success: false, error: DUPLICATE_FAQ_MESSAGE });
         return;
       }
     }
@@ -47,14 +52,14 @@ export const getFAQs = async (req: Request, res: Response, next: NextFunction): 
 
 export const updateFAQ = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const faq = await faqService.actualizarFAQ({
+    const { posibleDuplicado, ...faq } = await faqService.actualizarFAQ({
       usuarioId: req.usuario!.id,
       faqId: req.params.id,
       ...req.body,
       ...getRequestMeta(req),
     });
 
-    res.status(200).json({ success: true, message: 'Pregunta actualizada con éxito.', faq });
+    res.status(200).json({ success: true, message: 'Pregunta actualizada con éxito.', faq, posibleDuplicado });
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.message === 'BOT_NOT_FOUND') {
@@ -67,6 +72,10 @@ export const updateFAQ = async (req: Request, res: Response, next: NextFunction)
       }
       if (error.message === 'CATEGORY_NOT_FOUND') {
         res.status(400).json({ success: false, error: 'La nueva categoría especificada no existe.' });
+        return;
+      }
+      if (error.message === 'FAQ_DUPLICATE') {
+        res.status(409).json({ success: false, error: DUPLICATE_FAQ_MESSAGE });
         return;
       }
     }
@@ -91,6 +100,47 @@ export const deleteFAQ = async (req: Request, res: Response, next: NextFunction)
       }
       if (error.message === 'FAQ_NOT_FOUND') {
         res.status(404).json({ success: false, error: 'La pregunta no fue encontrada o ya fue eliminada.' });
+        return;
+      }
+    }
+    next(error);
+  }
+};
+
+export const getFAQSuggestions = (
+  _req: Request,
+  res: Response,
+): void => {
+  res.status(200).json({ success: true, data: faqService.obtenerSugerenciasFAQ() });
+};
+
+export const createFAQsFromSuggestions = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const faqs = await faqService.crearFAQsDesdeSugerencias({
+      usuarioId: req.usuario!.id,
+      suggestionIds: req.body.suggestionIds,
+      ...getRequestMeta(req),
+    });
+
+    res.status(201).json({
+      success: true,
+      message: faqs.length > 0
+        ? 'Preguntas sugeridas agregadas con éxito.'
+        : 'Las preguntas seleccionadas ya existían.',
+      faqs,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.message === 'BOT_NOT_FOUND') {
+        res.status(404).json({ success: false, error: 'Configuración de bot no encontrada.' });
+        return;
+      }
+      if (error.message === 'FAQ_SUGGESTION_NOT_FOUND') {
+        res.status(400).json({ success: false, error: 'Una o más sugerencias no pertenecen al catálogo oficial.' });
         return;
       }
     }

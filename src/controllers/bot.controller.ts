@@ -51,6 +51,11 @@ export const actualizarConfig = async (req: Request, res: Response) => {
       req.body.logoUrl = req.file.path;
     }
 
+    if (req.body.activo === 'true') req.body.activo = true;
+    if (req.body.activo === 'false') req.body.activo = false;
+    if (req.body.derivacionAutomatica === 'true') req.body.derivacionAutomatica = true;
+    if (req.body.derivacionAutomatica === 'false') req.body.derivacionAutomatica = false;
+
     const configActualizada = await botService.actualizarConfiguracionBot({
       usuarioId: req.usuario!.id,
       ...req.body,
@@ -65,6 +70,38 @@ export const actualizarConfig = async (req: Request, res: Response) => {
   }
 };
 
+export const actualizarSlug = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const slug = await botService.actualizarSlugBot({
+      usuarioId: req.usuario!.id,
+      slug: req.body.slug,
+      ip: req.ip ?? req.socket.remoteAddress,
+      dispositivo: req.headers['user-agent'],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Enlace público actualizado con éxito.',
+      slug,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'BOT_NOT_FOUND') {
+      res.status(404).json({ success: false, error: 'Configuración de bot no encontrada.' });
+      return;
+    }
+    if (error instanceof Error && error.message === 'SLUG_EDIT_ALREADY_USED') {
+      res.status(409).json({
+        success: false,
+        code: 'SLUG_EDIT_ALREADY_USED',
+        field: 'slug',
+        error: 'El enlace público ya fue personalizado y no puede volver a modificarse.',
+      });
+      return;
+    }
+    next(error);
+  }
+};
+
 export const obtenerRubros = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const rubros = await prisma.rubro.findMany({
@@ -75,6 +112,31 @@ export const obtenerRubros = async (req: Request, res: Response, next: NextFunct
 
     res.status(200).json({ success: true, rubros });
   } catch (error) {
+    next(error);
+  }
+};
+
+export const toggleBotStatus = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { slug } = req.params;
+    const { activo } = req.body;
+
+    const botActualizado = await botService.cambiarEstadoBot(req.usuario!.id, slug, activo);
+
+    res.status(200).json({
+      success: true,
+      mensaje: botActualizado.activo ? 'Bot activado exitosamente' : 'Bot desactivado exitosamente',
+      activo: botActualizado.activo,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'BOT_NOT_FOUND') {
+      res.status(404).json({ success: false, error: 'Bot no encontrado.' });
+      return;
+    }
     next(error);
   }
 };

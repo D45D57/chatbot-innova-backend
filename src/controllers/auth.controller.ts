@@ -21,8 +21,8 @@ export const register = async (req: Request, res: Response, next: NextFunction):
 
 export const login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const ip = req.ip || req.socket.remoteAddress;
-    const dispositivo = req.headers['user-agent'];
+    const ip = req.ip || req.socket.remoteAddress || 'IP Desconocida';
+    const dispositivo = req.headers['user-agent']|| 'Dispositivo Desconocido';
 
     const resultado = await authService.iniciarSesion({ ...req.body, ip, dispositivo });
 
@@ -41,6 +41,37 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       }
       if (error.message === 'ACCOUNT_INACTIVE') {
         res.status(403).json({ error: 'Esta cuenta se encuentra suspendida o eliminada' });
+        return;
+      }
+    }
+    next(error);
+  }
+};
+
+export const googleLogin = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const ip = req.ip || req.socket.remoteAddress || 'IP Desconocida';
+    const dispositivo = req.headers['user-agent'] || 'Dispositivo Desconocido';
+    const resultado = await authService.iniciarSesionGoogle({ ...req.body, ip, dispositivo });
+
+    res.status(200).json({
+      success: true,
+      message: 'Login con Google exitoso',
+      token: resultado.token,
+      usuario: resultado.usuario,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      if (error.message === 'INVALID_GOOGLE_CREDENTIAL') {
+        res.status(401).json({ error: 'La credencial de Google no es válida' });
+        return;
+      }
+      if (error.message === 'ACCOUNT_INACTIVE') {
+        res.status(403).json({ error: 'Esta cuenta se encuentra suspendida o eliminada' });
+        return;
+      }
+      if (error.message === 'GOOGLE_AUTH_NOT_CONFIGURED') {
+        res.status(503).json({ error: 'El inicio de sesión con Google no está configurado' });
         return;
       }
     }

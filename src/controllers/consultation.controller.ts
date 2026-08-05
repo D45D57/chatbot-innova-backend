@@ -1,0 +1,137 @@
+import { NextFunction, Request, Response } from 'express';
+import * as consultationService from '../services/consultation.service';
+
+const handleKnownError = (error: unknown, res: Response): boolean => {
+  if (!(error instanceof Error)) return false;
+  if (error.message === 'BOT_NOT_FOUND') {
+    res.status(404).json({ success: false, error: 'Configuración de bot no encontrada.' });
+    return true;
+  }
+  if (error.message === 'CONSULTATION_NOT_FOUND') {
+    res.status(404).json({ success: false, error: 'Consulta no encontrada.' });
+    return true;
+  }
+  return false;
+};
+
+export const getConsultations = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const consultas = await consultationService.listarConsultas(req.usuario!.id);
+    res.status(200).json({ success: true, consultas });
+  } catch (error: unknown) {
+    if (!handleKnownError(error, res)) next(error);
+  }
+};
+
+export const getConsultation = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const consulta = await consultationService.obtenerConsulta(req.usuario!.id, req.params.id);
+    res.status(200).json({ success: true, consulta });
+  } catch (error: unknown) {
+    if (!handleKnownError(error, res)) next(error);
+  }
+};
+
+export const updateConsultationStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const consulta = await consultationService.actualizarEstado({
+      usuarioId: req.usuario!.id,
+      consultaId: req.params.id,
+      estado: req.body.estado,
+    });
+    res.status(200).json({ success: true, message: 'Estado actualizado con éxito.', consulta });
+  } catch (error: unknown) {
+    if (!handleKnownError(error, res)) next(error);
+  }
+};
+
+export const createPublicConsultation = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const consulta = await consultationService.crearConsultaPublica({ slug: req.params.slug, ...req.body });
+    res.status(201).json({ success: true, consulta });
+  } catch (error: unknown) {
+    if (!handleKnownError(error, res)) next(error);
+  }
+};
+
+export const addPublicConsultationMessage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const mensaje = await consultationService.agregarMensajePublico({
+      slug: req.params.slug,
+      consultaId: req.params.id,
+      ...req.body,
+    });
+    res.status(201).json({ success: true, mensaje });
+  } catch (error: unknown) {
+    if (!handleKnownError(error, res)) next(error);
+  }
+};
+
+export const updatePublicConsultationContact = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const consulta = await consultationService.actualizarContactoPublico(
+      req.params.slug,
+      req.params.id,
+      req.body.clienteNombre,
+      req.body.clienteTelefono,
+    );
+    res.status(200).json({ success: true, consulta });
+  } catch (error: unknown) {
+    if (!handleKnownError(error, res)) next(error);
+  }
+};
+
+export const addEntrepreneurMessage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { contenido } = req.body;
+    
+    if (!contenido || typeof contenido !== 'string') {
+      res.status(400).json({ success: false, error: 'El contenido del mensaje es requerido y debe ser texto.' });
+      return;
+    }
+
+    const mensaje = await consultationService.agregarMensajeEmprendedor(
+      req.usuario!.id, 
+      req.params.id, 
+      contenido
+    );
+    
+    res.status(201).json({ success: true, mensaje });
+  } catch (error: unknown) {
+    if (!handleKnownError(error, res)) next(error);
+  }
+};
+export const updateChatControl = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { estado } = req.body; 
+    
+    const sesion = await consultationService.actualizarControlChat({
+      usuarioId: req.usuario!.id,
+      consultaId: req.params.id, 
+      estado,
+    });
+
+    res.status(200).json({ success: true, message: 'Control de chat actualizado.', sesion });
+  } catch (error: unknown) {
+    if (!handleKnownError(error, res)) next(error);
+  }
+};
+
+export const getConsultasEmprendedor = async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params; 
+    
+    const filtro = req.query.filtro as string;
+
+    const consultas = await consultationService.obtenerConsultasDerivadas(
+      req.usuario!.id,
+      slug,
+      filtro,
+    );
+    
+    return res.status(200).json(consultas);
+  } catch (error) {
+    console.error('Error al obtener consultas:', error);
+    return res.status(500).json({ error: 'Error interno al obtener las consultas' });
+  }
+};

@@ -1,69 +1,413 @@
 openapi: 3.0.0
 info:
-title: API de Autenticación, Configuración de Bot y Log de registros - InnovaLab Chatbot
+  title: InnovaLab Chatbot
   description: >
     Especificación completa de los endpoints del backend de InnovaLab.
     
     El sistema cuenta con una arquitectura de múltiples módulos:
     - Autenticación y Seguridad: Registro, login, historial de sesiones y gestión de cuenta.
     - Configuración del Bot: Permite al emprendedor personalizar la experiencia de su asistente virtual, gestionar categorías, preguntas frecuentes (FAQs) y cargar su catálogo de productos.
-    - Analítica y Telemetría: Pipeline de datos de alta concurrencia que registra el comportamiento de los usuarios (clics, navegación, errores) a lo largo del embudo de conversión, unificando el tráfico de visitantes anónimos con usuarios autenticados.
-    
+    - Mensajería y Chatbot Engine: Procesa las interacciones del usuario, mantiene el contexto de la conversación y permite derivar consultas a un asesor humano.
+    - Consultas y Presupuestos: Gestiona leads, cotizaciones y permite generar presupuestos formales en PDF.
     Documentación detallada de cada endpoint, incluyendo validaciones estrictas, manejo de Rate Limiting, respuestas esperadas y códigos de error.
   version: 1.1.0
+servers:
+  - url: http://localhost:3000
+    description: Entorno de desarrollo local
+  - url: https://chatbot-innova-backend-6388.onrender.com
+    description: Producción (Render)
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: "Token JWT obtenido desde POST /api/auth/login"
+  schemas:
+    # ─── RESPUESTAS GENÉRICAS ───────────────────────────────────────────────
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+ 
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+ 
+    ValidationErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Los datos enviados no son válidos"
+        detalles:
+          type: array
+          items:
+            type: object
+            properties:
+              campo:
+                type: string
+                example: "email"
+              mensaje:
+                type: string
+                example: "El formato del correo electrónico no es válido"
+ 
+    # ─── ENTIDADES ──────────────────────────────────────────────────────────
+    ConfiguracionBot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "c8d1e2f3-4567-89ab-cdef-012345678901"
+        usuarioId:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        activo:
+          type: boolean
+          example: true
+        nombreNegocio:
+          type: string
+          example: "La Tienda de Marta"
+        rubroId:
+          type: string
+          format: uuid
+          nullable: true
+        descripcionBreve:
+          type: string
+          nullable: true
+          example: "Venta de ropa femenina online y a domicilio"
+        horarioAtencion:
+          type: string
+          nullable: true
+          example: "Lunes a Viernes de 9 a 18hs"
+        telefono:
+          type: string
+          nullable: true
+          example: "+54 11 1234-5678"
+        logoUrl:
+          type: string
+          nullable: true
+          example: "https://res.cloudinary.com/micloud/image/upload/v1234/emprendebot_logos/logo-1719000000000.webp"
+        mensajeBienvenida:
+          type: string
+          nullable: true
+          example: "¡Hola! Bienvenido/a a La Tienda de Marta. ¿En qué te puedo ayudar hoy?"
+        mensajeFueraHorario:
+          type: string
+          nullable: true
+          example: "Por el momento estamos fuera de horario. Dejanos tu consulta y te respondemos a la brevedad."
+        respuestaDerivacion:
+          type: string
+          nullable: true
+          example: "Aguarda un momento, te comunico con un asesor."
+        derivacionAutomatica:
+          type: boolean
+          example: false
+        colorPrimario:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          default: "#13A8A2"
+          example: "#13A8A2"
+          description: Color primario del chatbot en formato hexadecimal #RRGGBB.
+        colorSecundario:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          default: "#1372A8"
+          example: "#1372A8"
+          description: Color secundario del chatbot en formato hexadecimal #RRGGBB.
+        fechaCreacion:
+          type: string
+          format: date-time
+        fechaActualizacion:
+          type: string
+          format: date-time
+ 
+    CategoriaFAQ:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+        botId:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+          example: "Envíos y entregas"
+        fechaCreacion:
+          type: string
+          format: date-time
+ 
+    FAQ:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "d4e5f6a7-b8c9-0123-abcd-456789012345"
+        botId:
+          type: string
+          format: uuid
+        categoriaId:
+          type: string
+          format: uuid
+        pregunta:
+          type: string
+          example: "¿Realizan envíos al interior del país?"
+        respuesta:
+          type: string
+          example: "Sí, enviamos a todo el país mediante OCA y Andreani. El costo varía según la zona."
+        fechaCreacion:
+          type: string
+          format: date-time
+        fechaModificacion:
+          type: string
+          format: date-time
+        categoria:
+          $ref: '#/components/schemas/CategoriaFAQ'
+ 
+    Producto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "e5f6a7b8-c9d0-1234-abcd-567890123456"
+        botId:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+          example: "Remera básica manga corta"
+        descripcion:
+          type: string
+          nullable: true
+          example: "100% algodón, disponible en talles S, M, L y XL"
+        precio:
+          type: number
+          example: 8500.00
+        requiereCotizacion:
+          type: boolean
+          default: false
+          description: Indica si el producto se muestra con precio a convenir.
+          example: false
+        stock:
+          type: integer
+          example: 45
+        urlImagen:
+          type: string
+          nullable: true
+          example: "https://res.cloudinary.com/micloud/image/upload/v1234/emprendebot_productos/prod-1719000000000.jpg"
+        activo:
+          type: boolean
+          example: true
+        fechaCreacion:
+          type: string
+          format: date-time
+        fechaActualizacion:
+          type: string
+          format: date-time
+ 
+    Rubro:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nombre:
+          type: string
+          example: "Indumentaria"
+ 
+    PaginatedFAQs:
+      type: object
+      properties:
+        faqs:
+          type: array
+          items:
+            $ref: '#/components/schemas/FAQ'
+        total:
+          type: integer
+          example: 12
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 10
+        totalPaginas:
+          type: integer
+          example: 2
+ 
+    PaginatedProductos:
+      type: object
+      properties:
+        productos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Producto'
+        total:
+          type: integer
+          example: 8
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 10
+        totalPaginas:
+          type: integer
+          example: 1
+ 
+tags:
+  - name: Sistema
+    description: Health check y estado del servidor
+  - name: Autenticación
+    description: Registro e inicio de sesión
+  - name: Cuenta
+    description: Gestión de la cuenta del usuario (contraseña, eliminación)
+  - name: Bot
+    description: Configuración del asistente virtual y rubros de negocio
+  - name: Categorías FAQ
+    description: Gestión de categorías de preguntas frecuentes
+  - name: FAQs
+    description: Gestión de preguntas y respuestas del chatbot
+  - name: Productos
+    description: Catálogo de productos del negocio
+  - name: Telemetría
+    description: Registro de eventos de comportamiento del usuario
+  - name: API Pública
+    description: Endpoints abiertos (sin autenticación) que consume el widget embebido del chat
+  - name: Consultas
+    description: Gestión de leads, cotizaciones y atención al cliente por parte del emprendedor
+  - name: Mensajería
+    description: Historial de chat y control de sesión
+  - name: Chatbot Engine
+    description: Motor conversacional — procesa las acciones del bot y el contexto de cada sesión
+  - name: Presupuestos
+    description: Cotizaciones formales (PDF), tanto las generadas por el bot como las manuales del emprendedor
+  - name: Métricas
+    description: Resumen y estadísticas del dashboard del emprendedor
 
 paths:
-  # ==========================================
-  # MÓDULO: AUTENTICACIÓN
-  # ==========================================
+   # ==========================================================================
+  # SISTEMA
+  # ==========================================================================
+  /health:
+    get:
+      tags: [Sistema]
+      summary: Health check del servidor y la base de datos
+      description: |
+        Verifica que el servidor esté corriendo y que la conexión con PostgreSQL funcione.
+        No requiere autenticación. No está sujeto al rate limiter global.
+      responses:
+        '200':
+          description: Servidor y base de datos operativos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "OK"
+                  db:
+                    type: string
+                    example: "connected"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2026-07-02T15:30:00.000Z"
+        '503':
+          description: La base de datos no responde
+          content:
+            application/json:
+              example:
+                status: "ERROR"
+                db: "disconnected"
+                timestamp: "2026-07-02T15:30:00.000Z"
+ 
+  # ==========================================================================
+  # AUTENTICACIÓN
+  # ==========================================================================
   /api/auth/register:
     post:
-      summary: Registro de un nuevo Emprendedor
-      description: >
-        Registra un usuario con el rol (EMPRENDEDOR), ejecuta validaciones estrictas de formato antes de crear su fila en ConfiguracionBot mediante una transacción ACID.
-      tags:
-        - Autenticación
+      tags: [Autenticación]
+      summary: Registrar un nuevo emprendedor
+      description: |
+        Crea un usuario con rol `EMPRENDEDOR`.
+ 
+        **Lo que hace internamente:**
+        1. Verifica que el email no esté registrado
+        2. Hashea la contraseña con bcryptjs (costo 10)
+        3. Crea el `Usuario`
+        4. Crea la `ConfiguracionBot` (1:1 con el usuario)
+        Las FAQ sugeridas se consultan y agregan posteriormente desde el módulo FAQ.
+ 
+        **Rate limit:** 10 requests cada 15 minutos por IP.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - nombre
-                - email
-                - password
+              required: [nombre, email, password]
               properties:
                 nombre:
                   type: string
                   minLength: 1
-                  example: "Daniela Innova"
-                  description: Nombre completo del emprendedor. No puede estar vacío ni contener solo espacios.
+                  maxLength: 100
+                  description: Nombre completo del emprendedor
+                  example: "Marta González"
                 email:
                   type: string
                   format: email
-                  pattern: '^[^\s@]+@[^\s@]+\.[^\s@]+$'
-                  example: "daniela@innovalab.com"
-                  description: Correo electrónico único y con formato válido.
+                  description: Email único. Se convierte a minúsculas automáticamente.
+                  example: "marta@tiendamarta.com"
                 password:
                   type: string
                   format: password
-                  minLength: 8
-                  pattern: '^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*?&.\-_#])[A-Za-z\d@$!%*?&.\-_#]{8,}$'
-                  example: "PasswordSegura2026!"
-                  description: >
-                    Contraseña de acceso. Requisitos obligatorios: Mínimo 8 caracteres de longitud, 
-                    debe contener al menos una letra, al menos un número y al menos un carácter especial 
-                    permitido (@, $, !, %, *, ?, &, ., -, _, #).
+                  description: |
+                    Requisitos: mínimo 8 caracteres, al menos 1 mayúscula, 1 minúscula,
+                    1 número y 1 símbolo (@, $, !, %, *, ?, & u otros).
+                    No puede contener espacios.
+                  example: "MiTienda2026!"
+                nombreNegocio:
+                  type: string
+                  maxLength: 150
+                  description: Nombre del negocio (opcional, se usa para el mensaje de bienvenida del bot)
+                  example: "La Tienda de Marta"
+            examples:
+              completo:
+                summary: Registro con nombre de negocio
+                value:
+                  nombre: "Marta González"
+                  email: "marta@tiendamarta.com"
+                  password: "MiTienda2026!"
+                  nombreNegocio: "La Tienda de Marta"
+              minimo:
+                summary: Registro mínimo (sin nombre de negocio)
+                value:
+                  nombre: "Carlos Pérez"
+                  email: "carlos@ejemplo.com"
+                  password: "CarlosSeguro99@"
       responses:
         '201':
-          description: Usuario y Configuración de Bot creados con éxito.
+          description: Usuario registrado y bot inicializado con éxito
           content:
             application/json:
               schema:
@@ -74,57 +418,85 @@ paths:
                     example: true
                   message:
                     type: string
-                    example: "Emprendedor registrado con éxito junto a su configuración de bot"
+                    example: "Usuario registrado exitosamente con configuración de bot inicializada"
                   usuarioId:
                     type: string
                     format: uuid
-                    example: "4fbc752d-9321-4f11-8e99-fa20d2d88851"
+                    example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         '400':
-          description: Error de validación en los datos enviados o email duplicado.
+          description: Datos de entrada inválidos
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    oneOf:
-                      - example: "El nombre es obligatorio y no puede estar vacío"
-                      - example: "El formato del correo electrónico no es válido"
-                      - example: "La contraseña debe tener al menos 8 caracteres, e incluir letras, números y al menos un carácter especial..."
-                      - example: "El email ya está registrado"
-        '500':
-          description: Error interno.
-
+              examples:
+                password_debil:
+                  summary: Contraseña no cumple requisitos
+                  value:
+                    success: false
+                    error: "Los datos enviados no son válidos"
+                    detalles:
+                      - campo: "password"
+                        mensaje: "Debe contener al menos un símbolo (@, $, !, %, *, ?, &, etc.)"
+                email_invalido:
+                  summary: Email con formato incorrecto
+                  value:
+                    success: false
+                    error: "Los datos enviados no son válidos"
+                    detalles:
+                      - campo: "email"
+                        mensaje: "El formato del correo electrónico no es válido"
+        '409':
+          description: El email ya está registrado
+          content:
+            application/json:
+              example:
+                success: false
+                error: "El email ya está registrado en el sistema"
+        '429':
+          description: Rate limit excedido (10 intentos por 15 minutos por IP)
+          content:
+            application/json:
+              example:
+                error: "Demasiados intentos. Esperá 15 minutos antes de volver a intentar."
+ 
   /api/auth/login:
     post:
-      summary: Inicio de sesión de Emprendedor
-      description: Validar credenciales, genera el log en HistorialSesion, guarda última sesión y genera JWT por 24 horas.
-      tags:
-        - Autenticación
+      tags: [Autenticación]
+      summary: Iniciar sesión
+      description: |
+        Autentica al usuario y devuelve un token JWT válido por 24 horas.
+ 
+        **Lo que hace internamente:**
+        1. Busca el usuario por email
+        2. Verifica que la cuenta esté `ACTIVO`
+        3. Compara el password con el hash (bcryptjs)
+        4. Genera un JWT con `{ id, email, rol }`
+        5. Registra la sesión en `HistorialSesion` y actualiza `ultimaSesion`
+ 
+        **Rate limit:** 10 requests cada 15 minutos por IP.
+ 
+        **Uso del token:** Enviarlo en el header `Authorization: Bearer <token>` en todos los endpoints que requieren autenticación.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - email
-                - password
+              required: [email, password]
               properties:
                 email:
                   type: string
                   format: email
-                  example: "daniela@innovalab.com"
-                  description: Correo electrónico registrado.
+                  example: "marta@tiendamarta.com"
                 password:
                   type: string
                   format: password
-                  example: "PasswordSegura2026!"
-                  description: Contraseña de acceso.
+                  example: "MiTienda2026!"
+            example:
+              email: "marta@tiendamarta.com"
+              password: "MiTienda2026!"
       responses:
         '200':
-          description: Credenciales válidas. Devuelve token válido por 24h.
+          description: Login exitoso. Guardar el `token` para usarlo en requests posteriores.
           content:
             application/json:
               schema:
@@ -133,758 +505,265 @@ paths:
                   success:
                     type: boolean
                     example: true
+                  message:
+                    type: string
+                    example: "Login exitoso"
                   token:
                     type: string
-                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    description: JWT para usar en el header Authorization. Válido 24 horas.
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImExYjJjM2Q0LWU1ZjYtNzg5MC1hYmNkLWVmMTIzNDU2Nzg5MCIsImVtYWlsIjoibWFydGFAdGllbmRhbWFydGEuY29tIiwicm9sIjoiRU1QUkVOREVET1IiLCJpYXQiOjE3NTExNDU2MDAsImV4cCI6MTc1MTIzMjAwMH0.firma_aqui"
                   usuario:
                     type: object
                     properties:
                       id:
                         type: string
-                        example: "4fbc752d-9321-4f11-8e99-fa20d2d88851"
+                        format: uuid
+                        example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                       nombre:
                         type: string
-                        example: "Daniela Innova"
+                        example: "Marta González"
                       email:
                         type: string
-                        example: "daniela@innovalab.com"
+                        example: "marta@tiendamarta.com"
+                      rol:
+                        type: string
+                        example: "EMPRENDEDOR"
         '401':
-          description: Credenciales incorrectas o cuenta inactiva.
+          description: Credenciales incorrectas
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    oneOf:
-                      - example: "Credenciales inválidas"
-                      - example: "La cuenta se encuentra inactiva o dada de baja"
-        '500':
-          description: Error interno del servidor.
-
-  # ==========================================
-  # MÓDULO: USUARIO (Requieren Token)
-  # ==========================================
-  /api/user/change-password:
+              example:
+                error: "Credenciales inválidas"
+        '403':
+          description: Cuenta suspendida o eliminada
+          content:
+            application/json:
+              example:
+                error: "Esta cuenta se encuentra suspendida o eliminada"
+        '429':
+          description: Rate limit de autenticación excedido
+          content:
+            application/json:
+              example:
+                error: "Demasiados intentos. Esperá 15 minutos antes de volver a intentar."
+  /api/auth/google:
     post:
-      summary: Cambiar contraseña
-      description: >
-        Permite al emprendedor cambiar su contraseña actual por una nueva. 
-        Aplica validaciones estrictas y registra el movimiento en la tabla RegistroActividad.
-      tags:
-        - Usuario
-      security:
-        - bearerAuth: [] 
+      tags: [Autenticación]
+      summary: Iniciar sesión con Google
+      description: |
+        Autentica o registra un usuario mediante el token de identidad (credential) proporcionado por Google.
+        Si el usuario no existe en la base de datos, se crea automáticamente la cuenta y la configuración inicial de su bot.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - passwordActual
-                - nuevaPassword
+              required: [credential]
+              properties:
+                credential:
+                  type: string
+                  description: "ID Token JWT emitido por Google (Credential)"
+                  example: "eyJhbGciOiJSUzI1NiIsImtpZ..."
+      responses:
+        '200':
+          description: Login con Google exitoso. Devuelve el JWT de la API y datos del usuario.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Login con Google exitoso"
+                  token:
+                    type: string
+                    description: JWT para usar en el header Authorization.
+                  usuario:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      nombre:
+                        type: string
+                      email:
+                        type: string
+                      rol:
+                        type: string
+        '400':
+          description: Faltan credenciales (error de validación de Zod).
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Los datos enviados no son válidos"
+                detalles:
+                  - campo: "credential"
+                    mensaje: "La credencial de Google es obligatoria"
+        '401':
+          description: Credencial inválida o rechazada por Google.
+          content:
+            application/json:
+              example:
+                error: "La credencial de Google no es válida"
+        '403':
+          description: Cuenta inactiva o eliminada.
+          content:
+            application/json:
+              example:
+                error: "Esta cuenta se encuentra suspendida o eliminada"
+        '503':
+          description: El backend no tiene configuradas las variables de entorno de Google.
+          content:
+            application/json:
+              example:
+                error: "El inicio de sesión con Google no está configurado"
+  # ==========================================================================
+  # CUENTA DE USUARIO
+  # ==========================================================================
+  /api/user/change-password:
+    post:
+      tags: [Cuenta]
+      summary: Cambiar contraseña
+      description: |
+        Cambia la contraseña del usuario autenticado.
+ 
+        **Reglas:**
+        - Se debe proveer la contraseña actual (verificación de identidad)
+        - La nueva contraseña debe cumplir los mismos requisitos que al registrarse
+        - La nueva contraseña no puede ser igual a la actual
+ 
+        Registra la acción en `RegistroActividad`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [passwordActual, nuevaPassword]
               properties:
                 passwordActual:
                   type: string
-                  example: "PasswordSegura2026!"
-                  description: Contraseña de acceso actual.
+                  format: password
+                  example: "MiTienda2026!"
                 nuevaPassword:
                   type: string
-                  example: "InnovaLabNueva26@#"
-                  description: Nueva contraseña.
+                  format: password
+                  description: |
+                    Requisitos: mínimo 8 caracteres, mayúscula, minúscula, número, símbolo.
+                    No puede ser igual a la contraseña actual.
+                  example: "NuevaClave2027@"
+            example:
+              passwordActual: "MiTienda2026!"
+              nuevaPassword: "NuevaClave2027@"
       responses:
         '200':
-          description: Contraseña actualizada con éxito.
+          description: Contraseña actualizada
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Contraseña actualizada con éxito."
+              example:
+                success: true
+                message: "Contraseña actualizada con éxito"
         '400':
-          description: Error de validación o contraseña actual incorrecta.
+          description: La contraseña actual es incorrecta o la nueva no cumple requisitos
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    oneOf:
-                      - example: "La contraseña actual es incorrecta"
-                      - example: "La nueva contraseña debe tener mínimo 8 caracteres, una mayúscula..."
+              examples:
+                password_incorrecta:
+                  value:
+                    error: "La contraseña actual es incorrecta"
+                misma_password:
+                  value:
+                    success: false
+                    error: "Los datos enviados no son válidos"
+                    detalles:
+                      - campo: "nuevaPassword"
+                        mensaje: "La nueva contraseña no puede ser igual a la actual"
         '401':
-          description: Token faltante o expirado.
+          description: Token inválido o expirado
         '404':
-          description: Usuario no encontrado.
-        '500':
-          description: Error interno del servidor.
-
+          description: Usuario no encontrado o la cuenta está inactiva
+          content:
+            application/json:
+              example:
+                error: "Usuario no encontrado o la cuenta está inactiva"
+ 
   /api/user/delete-account:
     delete:
-      summary: Dar de baja la cuenta (Soft Delete)
-      description: >
-        Ejecuta un falso eliminar. Cambia el estado del usuario a ELIMINADO para restringir su acceso, 
-        pero conserva su historial y métricas. Registra la acción en RegistroActividad.
-      tags:
-        - Usuario
+      tags: [Cuenta]
+      summary: Eliminar cuenta (soft delete)
+      description: |
+        Marca la cuenta del usuario como `ELIMINADO`. No elimina físicamente la fila de la base de datos.
+ 
+        **Efecto:**
+        - El usuario no puede volver a iniciar sesión
+        - Los tokens existentes se invalidan en el próximo request (el middleware `verificarToken` verifica el estado en DB)
+        - El historial de actividad y las sesiones se conservan en la base de datos
+ 
+        **Requiere confirmar la contraseña** como verificación de identidad antes de proceder.
+ 
+        Registra la acción en `RegistroActividad`.
       security:
-        - bearerAuth: [] 
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+                  description: Contraseña actual del usuario como confirmación
+                  example: "MiTienda2026!"
+            example:
+              password: "MiTienda2026!"
       responses:
         '200':
-          description: Cuenta dada de baja con éxito.
+          description: Cuenta eliminada
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Cuenta deshabilitada correctamente. Se conservan datos para métricas."
+              example:
+                success: true
+                message: "Cuenta eliminada exitosamente"
         '401':
-          description: Acceso denegado. Token faltante, expirado o inválido.
-        '500':
-          description: Error interno al procesar la baja.
-  
-  # ==========================================
-  # MÓDULO: CATEGORÍAS FAQ
-  # ==========================================
-  /api/faq-categories:
-    get:
-      summary: Listar categorías de FAQs
-      description: Obtiene todas las categorías asociadas al bot del emprendedor logueado.
-      tags:
-        - Categorías FAQ
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Devuelve un array con todas las categorías del bot.
+          description: Contraseña incorrecta o token inválido
           content:
             application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                      format: uuid
-                      example: "1a2b3c4d-5678-90ef-ghij-klmnopqrstuv"
-                    botId:
-                      type: string
-                      format: uuid
-                      example: "09876543-abcd-efgh-ijkl-mnopqrstuvwx"
-                    nombre:
-                      type: string
-                      example: "Medios de Pago"
-                    fechaCreacion:
-                      type: string
-                      format: date-time
-                      example: "2026-06-15T15:30:00Z"
-        '401':
-          description: No autorizado. Token inválido.
+              example:
+                success: false
+                error: "Contraseña incorrecta"
         '404':
-          description: Configuración de bot no encontrada para el usuario.
-        '500':
-          description: Error interno al obtener las categorías.
-    post:
-      summary: Crear categoría
-      description: Crea una nueva categoría de FAQs para el bot del emprendedor logueado.
-      tags:
-        - Categorías FAQ
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - nombre
-              properties:
-                nombre:
-                  type: string
-                  minLength: 1
-                  example: "Envíos y Retiros"
-                  description: Nombre visible de la categoría. No puede estar vacío ni contener solo espacios.
-      responses:
-        '201':
-          description: Categoría creada con éxito.
+          description: Usuario no encontrado
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Categoría creada con éxito."
-                  categoria:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                        example: "1a2b3c4d-5678-90ef-ghij-klmnopqrstuv"
-                      nombre:
-                        type: string
-                        example: "Envíos y Retiros"
-        '400':
-          description: El nombre de la categoría está vacío.
-        '404':
-          description: Configuración de bot no encontrada para el usuario.
-        '500':
-          description: Error interno al crear la categoría.
-
-  /api/faq-categories/{id}:
-    put:
-      summary: Editar categoría
-      description: Actualiza los detalles de una categoría de FAQs existente.
-      tags:
-        - Categorías FAQ
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-          example: "1a2b3c4d-5678-90ef-ghij-klmnopqrstuv"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - nombre
-              properties:
-                nombre:
-                  type: string
-                  example: "Logística y Envíos"
-      responses:
-        '200':
-          description: Categoría actualizada.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Categoría actualizada con éxito."
-                  categoria:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        example: "1a2b3c4d-5678-90ef-ghij-klmnopqrstuv"
-                      nombre:
-                        type: string
-                        example: "Envíos y Retiros"
-        '400':
-          description: El nombre de la categoría está vacío.
-        '404':
-          description: Categoría no encontrada o no autorizada.
-        '500':
-          description: Error interno al actualizar la categoría.
-    delete:
-      summary: Eliminar categoría
-      description: Elimina la categoría de forma permanente. Requiere que no existan FAQs asociadas (regla de restricción).
-      tags:
-        - Categorías FAQ
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-          example: "1a2b3c4d-5678-90ef-ghij-klmnopqrstuv"
-      responses:
-        '200':
-          description: Categoría eliminada.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Categoría eliminada con éxito."
-        '400':
-          description: Restricción de base de datos activa.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "No podés eliminar esta categoría porque tiene 3 pregunta(s) asociada(s). Eliminá o mové las preguntas primero."
-        '404':
-          description: Categoría no encontrada.
-        '500':
-          description: Error interno al eliminar la categoría.
-
-  # ==========================================
-  # MÓDULO: PREGUNTAS FRECUENTES (FAQ)
-  # ==========================================
-  /api/faqs:
-    get:
-      summary: Listar FAQs
-      description: Obtiene todas las preguntas frecuentes del bot, incluyendo el nombre de la categoría a la que pertenecen.
-      tags:
-        - FAQs
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Array de FAQs devuelto con éxito.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                      format: uuid
-                      example: "b1c2d3e4-f5g6-7890-hij1-klmnopqrstuv"
-                    categoriaId:
-                      type: string
-                      format: uuid
-                      example: "1a2b3c4d-5678-90ef-ghij-klmnopqrstuv"
-                    pregunta:
-                      type: string
-                      example: "¿Hacen envíos a todo el país?"
-                    respuesta:
-                      type: string
-                      example: "Sí, realizamos envíos a través de Correo Argentino."
-                    activa:
-                      type: boolean
-                      example: true
-                    categoria:
-                      type: object
-                      properties:
-                        nombre:
-                          type: string
-                          example: "Envíos y Retiros"
-        '400':
-          description: Error al obtener las FAQs.
-        '401':
-          description: No autorizado. Token inválido.
-        '404':
-          description: No encontrado. Configuración de bot no hallada para este usuario.
-        '500': 
-          description: Error interno al obtener las FAQs.
-    post:
-      summary: Crear una nueva FAQ
-      description: Asocia una nueva pregunta y respuesta a una categoría existente.
-      tags:
-        - FAQs
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - categoriaId
-                - pregunta
-                - respuesta
-              properties:
-                categoriaId:
-                  type: string
-                  format: uuid
-                  example: "1a2b3c4d-5678-90ef-ghij-klmnopqrstuv"
-                  description: ID de la categoría a la que pertenece.
-                pregunta:
-                  type: string
-                  example: "¿Aceptan transferencias bancarias?"
-                respuesta:
-                  type: string
-                  example: "Sí, aceptamos transferencias. Te enviaremos el CBU al confirmar el pedido."
-                activa:
-                  type: boolean
-                  example: true
-                  description: Estado de la FAQ. Por defecto es true.
-      responses:
-        '201':
-          description: Pregunta frecuente creada.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Pregunta frecuente creada con éxito."
-                  faq:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                        example: "c3d4e5f6-g7h8-9012-ijkl-mnopqrstuvwx"
-                      pregunta:
-                        type: string
-                        example: "¿Aceptan transferencias bancarias?"
-        '400':
-          description: Faltan campos obligatorios en el body.
-        '404':
-          description: La categoría no existe o no pertenece al bot del usuario.
-        '500':
-          description: Error interno al crear la FAQ. 
-
-  /api/faqs/{id}:
-    put:
-      summary: Editar FAQ
-      description: Modifica los datos de una pregunta frecuente específica.
-      tags:
-        - FAQs
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-          example: "b1c2d3e4-f5g6-7890-hij1-klmnopqrstuv"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                categoriaId:
-                  type: string
-                  format: uuid
-                  example: "1a2b3c4d-5678-90ef-ghij-klmnopqrstuv"
-                pregunta:
-                  type: string
-                  example: "¿Tienen cuotas sin interés?"
-                respuesta:
-                  type: string
-                  example: "Ofrecemos 3 cuotas sin interés con tarjetas de crédito bancarias."
-                activa:
-                  type: boolean
-                  example: true
-      responses:
-        '200':
-          description: FAQ actualizada con éxito.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Pregunta actualizada con éxito."
-                  faq:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        example: "b1c2d3e4-f5g6-7890-hij1-klmnopqrstuv"
-                      pregunta:
-                        type: string
-                        example: "¿Tienen cuotas sin interés?"
-        '400':
-          description: La nueva categoría es inválida.
-        '404':
-          description: Pregunta no encontrada o no autorizada.
-        '500':
-          description: Error interno al actualizar la FAQ.
-    delete:
-      summary: Eliminar FAQ
-      description: Elimina permanentemente la pregunta frecuente de la base de datos.
-      tags:
-        - FAQs
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-          example: "b1c2d3e4-f5g6-7890-hij1-klmnopqrstuv"
-      responses:
-        '200':
-          description: FAQ eliminada correctamente.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Pregunta eliminada con éxito."
-        '404':
-          description: Pregunta no encontrada.
-        '500':
-          description: Error interno al eliminar la FAQ.
-  # ==========================================
-  # MÓDULO: PRODUCTOS (CATÁLOGO)
-  # ==========================================
-  /api/products:
-    get:
-      summary: Listar Productos
-      description: Obtiene todo el catálogo de productos o servicios asociados al bot del emprendedor logueado.
-      tags:
-        - Productos
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Array de productos devuelto con éxito.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  productos:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                          example: "d1e2f3g4-h5i6-7890-jklm-nopqrstuvwxy"
-                        nombre:
-                          type: string
-                          example: "Remera Sublimada Personalizada"
-                        descripcion:
-                          type: string
-                          example: "Remera de algodón con diseño exclusivo DTF."
-                        precio:
-                          type: number
-                          example: 15000
-                        stock:
-                          type: number
-                          example: 50
-                        urlImagen:
-                          type: string
-                          example: "https://ejemplo.com/remera.jpg"
-                        activo:
-                          type: boolean
-                          example: true
-                        fechaCreacion:
-                          type: string
-                          format: date-time
-        '401':
-          description: No autorizado. Token inválido o faltante.
-        '404':
-          description: Configuración de bot no encontrada para el usuario.
-        '500':
-          description: Error interno al obtener los productos.
-    post:
-      summary: Crear Producto
-      description: Agrega un nuevo producto o servicio al catálogo del emprendedor.
-      tags:
-        - Productos
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - nombre
-                - precio
-              properties:
-                nombre:
-                  type: string
-                  example: "Remera Sublimada Personalizada"
-                  description: Nombre del producto o servicio.
-                descripcion:
-                  type: string
-                  example: "Remera de algodón con diseño exclusivo DTF."
-                  description: Descripción detallada (opcional).
-                precio:
-                  type: number
-                  example: 15000
-                  description: Precio unitario.
-                stock:
-                  type: number
-                  example: 50
-                  description: Cantidad disponible (opcional, por defecto 0).
-                urlImagen:
-                  type: string
-                  example: "https://ejemplo.com/remera.jpg"
-                  description: URL de la foto del producto (opcional).
-                activo:
-                  type: boolean
-                  example: true
-                  description: Define si el producto está visible en el catálogo (opcional, por defecto true).
-      responses:
-        '201':
-          description: Producto creado con éxito.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Producto creado con éxito."
-                  producto:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      nombre:
-                        type: string
-                      precio:
-                        type: number
-        '400':
-          description: Faltan los campos obligatorios (nombre o precio).
-        '404':
-          description: Configuración de bot no encontrada.
-        '500':
-          description: Error interno al crear el producto.
-
-  /api/products/{id}:
-    put:
-      summary: Editar Producto
-      description: Actualiza los detalles de un producto existente.
-      tags:
-        - Productos
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-          example: "d1e2f3g4-h5i6-7890-jklm-nopqrstuvwxy"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                nombre:
-                  type: string
-                  example: "Remera Sublimada Premium"
-                descripcion:
-                  type: string
-                  example: "Remera de algodón premium con diseño DTF."
-                precio:
-                  type: number
-                  example: 18000
-                stock:
-                  type: number
-                  example: 45
-                urlImagen:
-                  type: string
-                  example: "https://ejemplo.com/remera-premium.jpg"
-                activo:
-                  type: boolean
-                  example: true
-      responses:
-        '200':
-          description: Producto actualizado con éxito.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Producto actualizado con éxito."
-                  producto:
-                    type: object
-        '404':
-          description: Producto no encontrado o no pertenece al catálogo del usuario.
-        '500':
-          description: Error interno al actualizar el producto.
-    delete:
-      summary: Eliminar Producto
-      description: Elimina permanentemente un producto del catálogo del bot.
-      tags:
-        - Productos
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-          example: "d1e2f3g4-h5i6-7890-jklm-nopqrstuvwxy"
-      responses:
-        '200':
-          description: Producto eliminado con éxito.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
-                    type: string
-                    example: "Producto eliminado con éxito."
-        '404':
-          description: Producto no encontrado o ya eliminado.
-        '500':
-          description: Error interno al eliminar el producto.
-  # ==========================================
-  # MÓDULO: CONFIGURACIÓN DEL BOT
-  # ==========================================
+              example:
+                success: false
+                error: "Usuario no encontrado"
+ 
+  # ==========================================================================
+  # CONFIGURACIÓN DEL BOT
+  # ==========================================================================
   /api/bot:
     get:
-      summary: Obtener la configuración del bot
-      description: Devuelve la configuración actual del bot asociado al emprendedor logueado.
-      tags:
-        - Configuración Bot
+      tags: [Bot]
+      summary: Obtener configuración del bot
+      description: |
+        Devuelve la configuración completa del bot del usuario autenticado.
+        Cada usuario tiene exactamente un bot (relación 1:1 creada al registrarse).
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Configuración obtenida con éxito.
+          description: Configuración del bot
           content:
             application/json:
               schema:
@@ -894,54 +773,24 @@ paths:
                     type: boolean
                     example: true
                   configuracion:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                        example: "d4e5f6g7-h8i9-012j-klmn-opqrstuvwxyz"
-                      usuarioId:
-                        type: string
-                        format: uuid
-                        example: "4fbc752d-9321-4f11-8e99-fa20d2d88851"
-                      activo:
-                        type: boolean
-                        example: true
-                        description: Indica si el bot está encendido respondiendo mensajes.
-                      nombreNegocio:
-                        type: string
-                        example: "InnovaLab Store"
-                        nullable: true
-                      logoUrl:
-                        type: string
-                        example: "https://midominio.com/logo.png"
-                        nullable: true
-                      mensajeBienvenida:
-                        type: string
-                        example: "¡Hola! Bienvenido a InnovaLab Store. ¿En qué te puedo ayudar hoy?"
-                        nullable: true
-                      mensajeFueraHorario:
-                        type: string
-                        example: "En este momento estamos cerrados. Por favor, dejanos tu consulta y te responderemos a la brevedad."
-                        nullable: true
-                      derivacionAutomatica:
-                        type: boolean
-                        example: false
-                        description: Si es true, el bot transfiere la charla a un humano ante consultas complejas.
+                    $ref: '#/components/schemas/ConfiguracionBot'
         '401':
-          description: No autorizado. Token faltante, expirado o inválido.
+          description: No autenticado
+        '403':
+          description: Sin permisos (rol incorrecto)
         '404':
-          description: Configuración de bot no encontrada para este usuario.
-        '500':
-          description: Error interno del servidor al obtener la configuración.
-
+          description: Bot no encontrado (no debería ocurrir en condiciones normales)
+ 
     put:
-      summary: Actualizar la configuración del bot
-      description: >
-        Permite al emprendedor modificar parámetros de su bot. 
-        Solo se actualizarán los campos que sean enviados en el cuerpo de la petición.
-      tags:
-        - Configuración Bot
+      tags: [Bot]
+      summary: Actualizar configuración del bot (JSON)
+      description: |
+        Actualiza uno o más campos de la configuración del bot.
+        Todos los campos son opcionales — solo se actualizan los que se envían.
+ 
+        **Para actualizar el logo**, usar `PATCH /api/bot/config` con `multipart/form-data`.
+ 
+        Registra la acción en `RegistroActividad`.
       security:
         - bearerAuth: []
       requestBody:
@@ -956,22 +805,83 @@ paths:
                   example: true
                 nombreNegocio:
                   type: string
-                  example: "InnovaLab Store 2.0"
+                  maxLength: 150
+                  example: "La Tienda de Marta — Indumentaria"
+                rubroId:
+                  type: string
+                  format: uuid
+                  description: ID de un rubro obtenido desde GET /api/bot/rubros
+                  example: "b2c3d4e5-f6a7-8901-bcde-f01234567890"
+                descripcionBreve:
+                  type: string
+                  maxLength: 500
+                  example: "Venta de indumentaria femenina. Envíos a todo el país."
+                horarioAtencion:
+                  type: string
+                  maxLength: 100
+                  example: "Lunes a Viernes de 9 a 18hs. Sábados de 10 a 14hs."
+                telefono:
+                  type: string
+                  maxLength: 50
+                  example: "+54 11 1234-5678"
                 logoUrl:
                   type: string
-                  example: "https://midominio.com/nuevo-logo.png"
+                  format: uri
+                  description: URL directa a una imagen (alternativa a subir archivo)
+                  example: "https://ejemplo.com/mi-logo.png"
                 mensajeBienvenida:
                   type: string
-                  example: "¡Hola! Gracias por comunicarte con nosotros. ¿Qué estás buscando?"
+                  maxLength: 500
+                  example: "¡Hola! Bienvenido/a a La Tienda de Marta. ¿En qué te puedo ayudar hoy? 😊"
                 mensajeFueraHorario:
                   type: string
-                  example: "Nuestro horario de atención es de 9 a 18hs. Dejanos tu mensaje."
+                  maxLength: 500
+                  example: "Por el momento estamos fuera de horario. Respondemos de Lun a Vie de 9 a 18hs."
+                respuestaDerivacion:
+                  type: string
+                  maxLength: 500
+                  example: "Te comunico con un asesor, aguardá un momento."
                 derivacionAutomatica:
                   type: boolean
-                  example: true
+                  example: false
+                colorPrimario:
+                  type: string
+                  pattern: '^#[0-9A-Fa-f]{6}$'
+                  description: Color primario opcional. Se normaliza a mayúsculas.
+                  example: "#13A8A2"
+                colorSecundario:
+                  type: string
+                  pattern: '^#[0-9A-Fa-f]{6}$'
+                  description: Color secundario opcional. Se normaliza a mayúsculas.
+                  example: "#1372A8"
+            examples:
+              activar_bot:
+                summary: Activar el bot y configurar nombre
+                value:
+                  activo: true
+                  nombreNegocio: "La Tienda de Marta"
+                  mensajeBienvenida: "¡Hola! Soy Marti, el asistente de La Tienda de Marta. ¿Cómo te puedo ayudar?"
+              actualizar_horario:
+                summary: Solo actualizar horario de atención
+                value:
+                  horarioAtencion: "Lunes a Viernes de 10 a 17hs (no atendemos feriados)"
+              configuracion_completa:
+                summary: Configuración completa del negocio
+                value:
+                  activo: true
+                  nombreNegocio: "La Tienda de Marta"
+                  descripcionBreve: "Venta de ropa femenina online. Envíos en 24-48hs."
+                  horarioAtencion: "Lunes a Viernes de 9 a 18hs"
+                  telefono: "+54 9 11 1234-5678"
+                  mensajeBienvenida: "¡Bienvenida a La Tienda de Marta! ¿En qué te ayudo?"
+                  mensajeFueraHorario: "Estamos fuera de horario, te respondemos pronto."
+                  respuestaDerivacion: "Te paso con una asesora, ¡ya te atienden!"
+                  derivacionAutomatica: false
+                  colorPrimario: "#13A8A2"
+                  colorSecundario: "#1372A8"
       responses:
         '200':
-          description: Configuración actualizada correctamente.
+          description: Configuración actualizada
           content:
             application/json:
               schema:
@@ -984,71 +894,167 @@ paths:
                     type: string
                     example: "Configuración del bot actualizada con éxito."
                   configuracion:
-                    type: object
-                    description: Objeto con la configuración ya actualizada en la base de datos.
+                    $ref: '#/components/schemas/ConfiguracionBot'
+        '400':
+          description: Validación fallida, incluido un color sin formato hexadecimal #RRGGBB.
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Los datos enviados no son válidos"
+                detalles:
+                  - campo: "colorPrimario"
+                    mensaje: "El color debe tener formato hexadecimal #RRGGBB"
         '401':
-          description: No autorizado. Token faltante, expirado o inválido.
+          description: No autenticado
         '404':
-          description: Configuración de bot no encontrada para este usuario.
-        '500':
-          description: Error interno del servidor al actualizar la configuración.
-  # ==========================================
-  # MÓDULO: TELEMETRÍA (ANALÍTICA)
-  # ==========================================
-  /api/telemetry:
-    post:
-      summary: Registrar eventos de telemetría
-      description: >
-        Recibe los eventos de navegación (clics, vistas de pantalla, errores del funnel) desde el frontend.
-        Este endpoint admite tráfico anónimo para analizar conversiones. Si se provee un Token JWT válido
-        en los headers, automáticamente asocia todo el historial de la sesión al usuario registrado. 
-        Posee un Rate Limit estricto de 60 peticiones por minuto por IP para evitar saturación de la cola de Redis.
-      tags:
-        - Telemetría
+          description: Bot no encontrado
+ 
+  /api/bot/config:
+    patch:
+      tags: [Bot]
+      summary: Actualizar configuración completa y/o logo (multipart/form-data)
+      description: |
+        Permite actualizar la imagen del logo y/o cualquier otro campo de la configuración del bot simultáneamente.
+        
+        Se debe usar `multipart/form-data`.
+        **Formatos aceptados para imagenLogo:** JPG, JPEG, PNG, WEBP (Máx 5MB).
       security:
-        - {} # Permite peticiones sin autenticar (Visitantes Anónimos)
-        - bearerAuth: [] # Permite peticiones autenticadas (Usuarios Logueados)
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                imagenLogo:
+                  type: string
+                  format: binary
+                  description: Archivo de imagen del logo
+                activo:
+                  type: boolean
+                nombreNegocio:
+                  type: string
+                rubroId:
+                  type: string
+                  format: uuid
+                descripcionBreve:
+                  type: string
+                horarioAtencion:
+                  type: string
+                telefono:
+                  type: string
+                mensajeBienvenida:
+                  type: string
+                mensajeFueraHorario:
+                  type: string
+                respuestaDerivacion:
+                  type: string
+                derivacionAutomatica:
+                  type: boolean
+      responses:
+        '200':
+          description: Configuración y logo actualizados.
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  id: "c8d1e2f3-4567-89ab-cdef-012345678901"
+                  logoUrl: "https://res.cloudinary.com/micloud/image/upload/v1234/emprendebot_logos/logo-1719000000000.webp"
+        '401':
+          description: No autenticado
+ 
+  /api/bot/rubros:
+    get:
+      tags: [Bot]
+      summary: Listar rubros de negocio disponibles
+      description: |
+        Devuelve todos los rubros activos. **No requiere autenticación.**
+ 
+        Los rubros son categorías de negocio que el emprendedor asigna a su bot (Productos, Alimentos, Servicios, etc.).
+ 
+        Se usan para enviar el `rubroId` correcto al actualizar la configuración del bot.
+      responses:
+        '200':
+          description: Lista de rubros disponibles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  rubros:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Rubro'
+              example:
+                success: true
+                rubros:
+                  - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    nombre: "Alimentos"
+                  - id: "b2c3d4e5-f6a7-8901-bcde-f01234567890"
+                    nombre: "Artesanias"
+                  - id: "c3d4e5f6-a7b8-9012-cdef-012345678901"
+                    nombre: "Belleza"
+                  - id: "d4e5f6a7-b8c9-0123-def0-123456789012"
+                    nombre: "Eventos"
+                  - id: "e5f6a7b8-c9d0-1234-ef01-234567890123"
+                    nombre: "Hogar"
+                  - id: "f6a7b8c9-d0e1-2345-f012-345678901234"
+                    nombre: "Otros"
+                  - id: "a7b8c9d0-e1f2-3456-0123-456789012345"
+                    nombre: "Productos"
+                  - id: "b8c9d0e1-f2a3-4567-1234-567890123456"
+                    nombre: "Retail"
+                  - id: "c9d0e1f2-a3b4-5678-2345-678901234567"
+                    nombre: "Salud"
+                  - id: "d0e1f2a3-b4c5-6789-3456-789012345678"
+                    nombre: "Servicios"
+                  - id: "e1f2a3b4-c5d6-7890-4567-890123456789"
+                    nombre: "Tecnologia"
+ 
+  # ==========================================================================
+  # CATEGORÍAS DE FAQ
+  # ==========================================================================
+  /api/faq-categories:
+    post:
+      tags: [Categorías FAQ]
+      summary: Crear categoría de FAQ
+      description: |
+        Crea una nueva categoría de preguntas frecuentes para el bot del usuario autenticado.
+ 
+        Las categorías se crean automáticamente al registrarse. Este endpoint permite crear categorías adicionales.
+ 
+        Registra la acción en `RegistroActividad`.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - sessionId
-                - eventos
+              required: [nombre]
               properties:
-                sessionId:
+                nombre:
                   type: string
-                  example: "sesion-anonima-abc123"
-                  description: Identificador temporal generado por el frontend (usualmente almacenado en sessionStorage).
-                eventos:
-                  type: array
-                  description: Lista de acciones realizadas por el usuario a registrar en MotherDuck.
-                  items:
-                    type: object
-                    properties:
-                      tipoEvento:
-                        type: string
-                        example: "CLICK"
-                        description: Categoría de la acción (ej. PAGE_VIEW, CLICK, FUNNEL_STEP).
-                      pantallaActual:
-                        type: string
-                        example: "/dashboard"
-                        description: Ruta del frontend donde ocurrió el evento.
-                      elemento:
-                        type: string
-                        example: "boton_ver_planes"
-                        description: ID o nombre del elemento interactuado.
-                      metadata:
-                        type: object
-                        example: 
-                          tiempoEnPaginaSegundos: 15
-                          referral: "google"
-                        description: JSON dinámico con información extra útil para los analistas de datos.
+                  minLength: 1
+                  maxLength: 200
+                  example: "Envíos y logística"
+            examples:
+              nueva_categoria:
+                value:
+                  nombre: "Envíos y logística"
+              otra_categoria:
+                value:
+                  nombre: "Garantías y devoluciones"
       responses:
-        '200':
-          description: Eventos recibidos y encolados exitosamente en Redis.
+        '201':
+          description: Categoría creada con éxito.
           content:
             application/json:
               schema:
@@ -1059,26 +1065,1853 @@ paths:
                     example: true
                   message:
                     type: string
-                    example: "Eventos registrados"
+                    example: "Categoría creada con éxito."
+                  categoria:
+                    $ref: '#/components/schemas/CategoriaFAQ'
         '400':
-          description: Datos de entrada inválidos (falta sessionId o array de eventos vacío).
+          description: Error de validación Zod (el nombre está vacío o supera los 200 caracteres).
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Los datos enviados no son válidos"
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot no encontrada.
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Configuración de bot no encontrada."
+ 
+    get:
+      tags: [Categorías FAQ]
+      summary: Listar categorías de FAQ
+      description: |
+        Devuelve todas las categorías del bot del usuario autenticado, ordenadas por fecha de creación descendente.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de categorías
+          content:
+            application/json:
+              example:
+                success: true
+                categorias:
+                  - id: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+                    botId: "c8d1e2f3-4567-89ab-cdef-012345678901"
+                    nombre: "Precios y pagos"
+                    fechaCreacion: "2026-06-15T10:30:00.000Z"
+                  - id: "e2d3c4b5-a6f7-8901-bcde-f01234567890"
+                    botId: "c8d1e2f3-4567-89ab-cdef-012345678901"
+                    nombre: "Envíos"
+                    fechaCreacion: "2026-06-15T10:30:01.000Z"
+        '401':
+          description: No autenticado
+        '404':
+          description: Configuración de bot no encontrada.
+ 
+  /api/faq-categories/{id}:
+    put:
+      tags: [Categorías FAQ]
+      summary: Actualizar nombre de categoría
+      description: |
+        Renombra una categoría existente del bot del usuario autenticado.
+ 
+        Registra la acción en `RegistroActividad`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID de la categoría a actualizar
+          example: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre]
+              properties:
+                nombre:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  example: "Medios de pago"
+            example:
+              nombre: "Medios de pago"
+      responses:
+        '200':
+          description: Categoría actualizada
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Categoría actualizada con éxito."
+                categoria:
+                  id: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+                  botId: "c8d1e2f3-4567-89ab-cdef-012345678901"
+                  nombre: "Medios de pago"
+                  fechaCreacion: "2026-06-15T10:30:00.000Z"
+        '400':
+          description: ID de categoría inválido
+        '401':
+          description: No autenticado
+        '404':
+          description: Categoría no encontrada o no pertenece al bot del usuario
+          content:
+            application/json:
+              example:
+                success: false
+                error: "La categoría no existe o no pertenece a tu bot."
+ 
+    delete:
+      tags: [Categorías FAQ]
+      summary: Eliminar categoría
+      description: |
+        Elimina una categoría del bot del usuario autenticado.
+ 
+        **Importante:** No se puede eliminar una categoría que tenga FAQs asociadas.
+        El sistema devolverá `409 Conflict`. Es necesario eliminar o reasignar las FAQs primero.
+ 
+        Registra la acción en `RegistroActividad`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID de la categoría a eliminar
+          example: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+      responses:
+        '200':
+          description: Categoría eliminada
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Categoría eliminada con éxito."
+        '400':
+          description: El ID proporcionado no es un UUID válido.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Bot no encontrado o la categoría no existe.
+        '409':
+          description: La categoría tiene FAQs asociadas y no puede eliminarse
+          content:
+            application/json:
+              example:
+                success: false
+                error: "No se puede eliminar la categoría porque tiene preguntas frecuentes asociadas."
+ 
+  # ==========================================================================
+  # FAQs
+  # ==========================================================================
+  /api/faqs/suggestions:
+    get:
+      tags: [FAQs]
+      summary: Obtener el catálogo oficial de FAQ sugeridas
+      description: Devuelve las seis plantillas administradas por el backend.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Catálogo de sugerencias
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  error:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, pregunta, respuesta, categoria]
+                      properties:
+                        id:
+                          type: string
+                          example: "medios-pago"
+                        pregunta:
+                          type: string
+                          example: "¿Qué medios de pago aceptan?"
+                        respuesta:
+                          type: string
+                        categoria:
+                          type: object
+                          properties:
+                            nombre:
+                              type: string
+                              example: "Precios y pagos"
+        '401':
+          description: No autenticado
+
+  /api/faqs/from-suggestions:
+    post:
+      tags: [FAQs]
+      summary: Crear FAQ reales desde sugerencias oficiales
+      description: |
+        Recibe únicamente IDs del catálogo. Crea o reutiliza las categorías del bot
+        autenticado y omite de forma idempotente las preguntas que ya existen.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [suggestionIds]
+              properties:
+                suggestionIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 6
+                  uniqueItems: true
+                  items:
                     type: string
-                    example: "Datos de telemetría inválidos"
+                  example: ["medios-pago", "envios"]
+      responses:
+        '201':
+          description: FAQ creadas; puede devolver una lista vacía si ya existían
+        '400':
+          description: Selección vacía o ID inexistente
+        '401':
+          description: No autenticado
+        '404':
+          description: Configuración de bot no encontrada
+
+  /api/faqs:
+    post:
+      tags: [FAQs]
+      summary: Crear una nueva FAQ
+      description: |
+        Crea una pregunta frecuente y la asigna a una categoría del bot del usuario.
+ 
+        La categoría debe pertenecer al mismo bot — no se puede usar una categoría de otro usuario.
+ 
+        Registra la acción en `RegistroActividad`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categoriaId, pregunta, respuesta]
+              properties:
+                categoriaId:
+                  type: string
+                  format: uuid
+                  description: ID de la categoría a la que pertenece esta FAQ (debe ser del mismo bot)
+                  example: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+                pregunta:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+                  example: "¿Realizan envíos al interior del país?"
+                respuesta:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                  example: "Sí, enviamos a todo el país mediante OCA y Andreani. El costo varía según la zona y lo calculamos juntos al momento de la compra."
+            examples:
+              faq_envios:
+                summary: FAQ de envíos
+                value:
+                  categoriaId: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+                  pregunta: "¿Realizan envíos al interior del país?"
+                  respuesta: "Sí, enviamos a todo el país mediante OCA y Andreani. El costo varía según la zona."
+              faq_pagos:
+                summary: FAQ de medios de pago
+                value:
+                  categoriaId: "e2d3c4b5-a6f7-8901-bcde-f01234567890"
+                  pregunta: "¿Qué medios de pago aceptan?"
+                  respuesta: "Aceptamos transferencia bancaria, Mercado Pago (tarjetas, Mercado Crédito) y efectivo en punto de entrega."
+      responses:
+        '201':
+          description: FAQ creada
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Pregunta creada con éxito."
+                faq:
+                  id: "d4e5f6a7-b8c9-0123-abcd-456789012345"
+                  botId: "c8d1e2f3-4567-89ab-cdef-012345678901"
+                  categoriaId: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+                  pregunta: "¿Realizan envíos al interior del país?"
+                  respuesta: "Sí, enviamos a todo el país mediante OCA y Andreani."
+                  fechaCreacion: "2026-07-02T12:00:00.000Z"
+                  fechaModificacion: "2026-07-02T12:00:00.000Z"
+        '400':
+          description: Validación fallida
+        '401':
+          description: No autenticado
+        '404':
+          description: Bot no encontrado o la categoría especificada no existe.
+          content:
+            application/json:
+              example:
+                success: false
+                error: "La categoría especificada no existe o no pertenece a tu bot."
+        '409':
+          description: La pregunta ya existe en la base de datos para este bot.
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Esta pregunta ya existe en tu configuración."
+ 
+    get:
+      tags: [FAQs]
+      summary: Listar FAQs con filtros y paginación
+      description: |
+        Devuelve las FAQs del bot del usuario autenticado.
+ 
+        Soporta filtros combinables por categoría y búsqueda de texto.
+ 
+        La paginación es obligatoria (con defaults de page=1 y limit=10).
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          example: 1
+          description: Número de página
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+          example: 10
+          description: Cantidad de FAQs por página (máximo 100)
+        - in: query
+          name: categoriaId
+          schema:
+            type: string
+            format: uuid
+          description: Filtrar por categoría específica
+          example: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+        - in: query
+          name: buscar
+          schema:
+            type: string
+          description: Texto a buscar en pregunta y respuesta (case-insensitive)
+          example: "envío"
+      responses:
+        '200':
+          description: Lista paginada de FAQs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  faqs:
+                    $ref: '#/components/schemas/PaginatedFAQs'
+              example:
+                success: true
+                faqs:
+                  faqs:
+                    - id: "d4e5f6a7-b8c9-0123-abcd-456789012345"
+                      botId: "c8d1e2f3-4567-89ab-cdef-012345678901"
+                      categoriaId: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+                      pregunta: "¿Realizan envíos al interior del país?"
+                      respuesta: "Sí, enviamos a todo el país mediante OCA y Andreani."
+                      fechaCreacion: "2026-07-02T12:00:00.000Z"
+                      fechaModificacion: "2026-07-02T12:00:00.000Z"
+                      categoria:
+                        id: "f1e2d3c4-b5a6-7890-abcd-ef0123456789"
+                        nombre: "Envíos"
+                  total: 12
+                  page: 1
+                  limit: 10
+                  totalPaginas: 2
+        '401':
+          description: No autenticado
+ 
+  /api/faqs/{id}:
+    put:
+      tags: [FAQs]
+      summary: Actualizar una FAQ
+      description: |
+        Actualiza una o más propiedades de una FAQ existente.
+ 
+        Todos los campos del body son opcionales — solo se actualiza lo que se envía.
+        Se debe enviar al menos un campo.
+ 
+        Se puede reasignar la FAQ a otra categoría enviando un `categoriaId` diferente
+        (la nueva categoría debe pertenecer al mismo bot).
+ 
+        Registra la acción en `RegistroActividad`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID de la FAQ a actualizar
+          example: "d4e5f6a7-b8c9-0123-abcd-456789012345"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                categoriaId:
+                  type: string
+                  format: uuid
+                  description: Nueva categoría (opcional)
+                pregunta:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+                respuesta:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+            examples:
+              actualizar_respuesta:
+                summary: Solo actualizar la respuesta
+                value:
+                  respuesta: "Sí, enviamos a todo el país mediante OCA, Andreani y correo argentino. El costo varía según destino."
+              mover_categoria:
+                summary: Mover a otra categoría y actualizar pregunta
+                value:
+                  categoriaId: "e2d3c4b5-a6f7-8901-bcde-f01234567890"
+                  pregunta: "¿Hacen envíos? ¿A qué zonas?"
+      responses:
+        '200':
+          description: FAQ actualizada
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Pregunta actualizada con éxito."
+                faq:
+                  id: "d4e5f6a7-b8c9-0123-abcd-456789012345"
+                  pregunta: "¿Realizan envíos al interior del país?"
+                  respuesta: "Sí, enviamos a todo el país mediante OCA, Andreani y correo argentino."
+        '400':
+          description: ID inválido o body vacío
+        '401':
+          description: No autenticado
+        '404':
+          description: FAQ no encontrada o categoría de destino inválida
+ 
+    delete:
+      tags: [FAQs]
+      summary: Eliminar una FAQ
+      description: |
+        Elimina permanentemente una FAQ del bot del usuario.
+ 
+        Es un **hard delete** (eliminación real). No se puede recuperar.
+ 
+        Registra la acción en `RegistroActividad`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID de la FAQ a eliminar
+          example: "d4e5f6a7-b8c9-0123-abcd-456789012345"
+      responses:
+        '200':
+          description: FAQ eliminada
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Pregunta eliminada con éxito."
+        '401':
+          description: No autenticado
+        '404':
+          description: FAQ no encontrada o ya eliminada
+ 
+ # ==========================================================================
+  # PRODUCTOS
+  # ==========================================================================
+  /api/products:
+    post:
+      tags: [Productos]
+      summary: Crear un producto o servicio
+      description: |
+        Agrega un producto o servicio al catálogo del bot.
+        Soporta `multipart/form-data` para procesar la subida de la imagen vía Cloudinary (máx. 5MB) o enviar una URL directa.
+        
+        **Regla de Precios (Zod):**
+        Si `requiereCotizacion` es `false`, el campo `precio` es obligatorio y debe ser mayor a 0.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [nombre]
+              properties:
+                nombre:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  example: "Instalación Eléctrica"
+                descripcion:
+                  type: string
+                  maxLength: 2000
+                requiereCotizacion:
+                  type: boolean
+                  default: false
+                  description: "Si es true, el producto es 'A convenir'."
+                precio:
+                  type: number
+                  minimum: 0
+                  description: "Debe ser > 0 si requiereCotizacion es false."
+                stock:
+                  type: integer
+                  minimum: 0
+                  default: 0
+                activo:
+                  type: boolean
+                  default: true
+                imagen:
+                  type: string
+                  format: binary
+                  description: Imagen del producto (JPG, PNG, WEBP — máx 5MB).
+                urlImagen:
+                  type: string
+                  format: uri
+                  description: "URL directa (alternativa a subir archivo binario)."
+      responses:
+        '201':
+          description: Producto creado con éxito.
+        '400':
+          description: Validación fallida de Zod (ej. precio requerido y no enviado, o imagen demasiado pesada para multer).
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Si el producto no es 'A convenir', debes ingresar un precio mayor a 0"
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot no encontrada.
+
+    get:
+      tags: [Productos]
+      summary: Listar productos con filtros y paginación
+      description: |
+        Devuelve el catálogo de productos del bot del usuario autenticado.
+        Incluye defaults de paginación estrictos (page=1, limit=10, máximo limit=100).
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - in: query
+          name: buscar
+          schema:
+            type: string
+            description: Buscar por coincidencia parcial en nombre (case-insensitive).
+        - in: query
+          name: activo
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        '200':
+          description: Catálogo paginado obtenido exitosamente.
+        '400':
+          description: Error en parámetros de query (ej. limit mayor a 100).
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot no encontrada.
+
+  /api/products/{id}:
+    get:
+      tags: [Productos]
+      summary: Obtener un producto por ID
+      description: Devuelve un producto específico mediante su ID (UUID válido).
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Producto encontrado exitosamente.
+        '400':
+          description: El ID no tiene formato UUID.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Producto no existe o no pertenece al catálogo del usuario.
+          content:
+            application/json:
+              example:
+                success: false
+                error: "El producto no existe o no pertenece a tu catálogo."
+
+    put:
+      tags: [Productos]
+      summary: Actualizar un producto
+      description: |
+        Actualiza los campos de un producto. Soporta `multipart/form-data` para reemplazar la imagen.
+        Al menos un campo debe enviarse para evitar un error 400.
+        **Regla de Negocio:** Lanza 400 `FIXED_PRICE_REQUIRED` si se quita `requiereCotizacion` y el precio guardado queda en 0.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                nombre: 
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                descripcion: 
+                  type: string
+                  maxLength: 2000
+                requiereCotizacion: 
+                  type: boolean
+                precio: 
+                  type: number
+                  minimum: 0
+                  description: "No puede tener más de 2 decimales."
+                stock: 
+                  type: integer
+                  minimum: 0
+                activo: 
+                  type: boolean
+                imagen:
+                  type: string
+                  format: binary
+                  description: "Nueva imagen (JPG/PNG/WEBP máx 5MB)."
+      responses:
+        '200':
+          description: Producto actualizado con éxito.
+        '400':
+          description: Body vacío, error de validación Zod, o infracción de precio fijo.
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Los productos con precio fijo deben tener un precio mayor a 0."
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot o producto no encontrado.
+
+    delete:
+      tags: [Productos]
+      summary: Eliminar un producto
+      description: Elimina permanentemente un producto de la base de datos (Hard Delete).
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Producto eliminado con éxito.
+        '400':
+          description: El ID no tiene formato UUID.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot o producto no encontrado.
+  # ==========================================================================
+  # TELEMETRÍA
+  # ==========================================================================
+  /api/telemetry:
+    post:
+      tags: [Telemetría]
+      summary: Registrar eventos de comportamiento del usuario
+      description: |
+        Ingesta de eventos de analítica del frontend.
+ 
+        ## Comportamiento clave: fire-and-forget
+        **Este endpoint siempre responde `200 OK`**, independientemente de si los eventos
+        se encolaron correctamente en Redis. La telemetría nunca bloquea la experiencia del usuario.
+ 
+        ## Autenticación: opcional
+        - Si se envía token JWT válido, el `usuarioId` del usuario autenticado se asocia a los eventos.
+        - Si no hay token (usuario anónimo), los eventos se registran con `usuarioId: "anonimo"`.
+ 
+        ## Pipeline de datos
+        ```
+        POST /api/telemetry → Redis (lpush) → Worker (rpop cada 10s) → PostgreSQL (tabla eventos_telemetry)
+        ```
+ 
+        ## Rate limit específico
+        60 requests por minuto por IP (más estricto que el límite general de la API).
+ 
+        ## Casos de uso típicos
+        - Registrar que un usuario visitó una página (PAGE_VIEW)
+        - Registrar un clic en un botón (CLICK)
+        - Registrar que el usuario interactuó con el chatbot (BOT_INTERACTION)
+        - Registrar un error de JavaScript (ERROR)
+        - Registrar el inicio/fin de una sesión (SESSION_START / SESSION_END)
+ 
+        ## sessionId
+        Identificador único de sesión del lado del cliente. Debe generarse una vez por
+        sesión de navegador y mantenerse en `sessionStorage`. Formato libre (string hasta 200 chars).
+        Ejemplo: `crypto.randomUUID()` en el frontend.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, eventos]
+              properties:
+                sessionId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: |
+                    Identificador único de sesión del cliente. Generarlo con `crypto.randomUUID()`
+                    al inicio de la sesión y reutilizarlo en todos los requests de esa sesión.
+                  example: "3f7a9c12-4e8b-4d2f-a901-bc45de678901"
+                botId:
+                  type: string
+                  description: "ID del bot con el que se está interactuando (opcional)."
+                tipoUsuario:
+                  type: string
+                  enum: [ANONIMO, EMPRENDEDOR, CLIENTE]
+                eventos:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  description: Uno o más eventos del batch. Máximo 100 por request.
+                  items:
+                    type: object
+                    required: [tipoEvento]
+                    properties:
+                      tipoEvento:
+                        type: string
+                        minLength: 1
+                        maxLength: 50
+                        description: |
+                          Tipo de evento. Valores sugeridos (no obligatorios):
+                          PAGE_VIEW, CLICK, BOT_INTERACTION, ERROR, FORM_SUBMIT,
+                          SESSION_START, SESSION_END, SCROLL, HOVER
+                        example: "PAGE_VIEW"
+                      pantallaActual:
+                        type: string
+                        maxLength: 200
+                        description: Ruta o nombre de la pantalla actual
+                        example: "/dashboard/faqs"
+                      elemento:
+                        type: string
+                        maxLength: 100
+                        description: Identificador del elemento con el que se interactuó
+                        example: "btn-crear-faq"
+                      metadata:
+                        type: object
+                        additionalProperties: true
+                        description: Datos adicionales libres sobre el evento (JSON arbitrario)
+                        example:
+                          timeOnPage: 4500
+                          scrollDepth: 75
+            examples:
+              usuario_anonimo_una_pagina:
+                summary: "Usuario anónimo — vista de página + clic"
+                description: "Caso típico de tracking sin login. Dos eventos en un solo request."
+                value:
+                  sessionId: "3f7a9c12-4e8b-4d2f-a901-bc45de678901"
+                  eventos:
+                    - tipoEvento: "PAGE_VIEW"
+                      pantallaActual: "/landing"
+                      metadata:
+                        referrer: "https://google.com"
+                        userAgent: "Mozilla/5.0"
+                    - tipoEvento: "CLICK"
+                      pantallaActual: "/landing"
+                      elemento: "btn-registrarse"
+                      metadata:
+                        x: 540
+                        y: 312
+ 
+              usuario_autenticado_dashboard:
+                summary: "Usuario autenticado — navegación en el dashboard"
+                description: "El token JWT es opcional pero si se envía, el usuarioId se asocia al evento guardado en la base de datos."
+                value:
+                  sessionId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  eventos:
+                    - tipoEvento: "PAGE_VIEW"
+                      pantallaActual: "/dashboard/faqs"
+                      metadata:
+                        totalFaqs: 12
+                        filtroActivo: "true"
+                    - tipoEvento: "CLICK"
+                      pantallaActual: "/dashboard/faqs"
+                      elemento: "btn-crear-faq"
+                      metadata:
+                        x: 423
+                        y: 156
+ 
+              interaccion_bot:
+                summary: "Interacción del cliente final con el chatbot"
+                description: "Tracking de conversación en el widget del bot."
+                value:
+                  sessionId: "bot-sess-xyz789"
+                  eventos:
+                    - tipoEvento: "BOT_INTERACTION"
+                      pantallaActual: "/chatbot-widget"
+                      elemento: "chat-input"
+                      metadata:
+                        mensajeIndex: 1
+                        intent: "consulta_precios"
+                        respondioBot: true
+                    - tipoEvento: "BOT_INTERACTION"
+                      pantallaActual: "/chatbot-widget"
+                      elemento: "btn-derivar-humano"
+                      metadata:
+                        mensajeIndex: 4
+                        motivoDerivacion: "cliente_no_satisfecho"
+ 
+              error_frontend:
+                summary: "Error de JavaScript en el frontend"
+                description: "Logging de errores de runtime para debugging."
+                value:
+                  sessionId: "err-sess-abc123"
+                  eventos:
+                    - tipoEvento: "ERROR"
+                      pantallaActual: "/dashboard/productos"
+                      elemento: "componente-carga-imagen"
+                      metadata:
+                        errorType: "TypeError"
+                        errorMessage: "Cannot read properties of null"
+                        stack: "TypeError: Cannot read properties of null\n  at ProductoForm.jsx:87"
+                        severity: "high"
+ 
+              sesion_completa:
+                summary: "Batch completo: inicio y fin de sesión con múltiples interacciones"
+                description: "Ejemplo de un batch con múltiples eventos enviados al cerrar la tab o al perder foco."
+                value:
+                  sessionId: "sess-completa-2026"
+                  eventos:
+                    - tipoEvento: "SESSION_START"
+                      pantallaActual: "/dashboard"
+                      metadata:
+                        hora: "09:15:30"
+                        timezone: "America/Buenos_Aires"
+                    - tipoEvento: "PAGE_VIEW"
+                      pantallaActual: "/dashboard"
+                      metadata:
+                        timeOnPage: 3200
+                    - tipoEvento: "PAGE_VIEW"
+                      pantallaActual: "/dashboard/bot"
+                      metadata:
+                        timeOnPage: 8900
+                    - tipoEvento: "CLICK"
+                      pantallaActual: "/dashboard/bot"
+                      elemento: "toggle-bot-activo"
+                      metadata:
+                        nuevoEstado: true
+                    - tipoEvento: "SESSION_END"
+                      pantallaActual: "/dashboard/bot"
+                      metadata:
+                        totalTimeMs: 45300
+                        paginasVisitadas: 2
+      responses:
+        '200':
+          description: |
+            Eventos recibidos y encolados en Redis.
+            **Siempre devuelve 200**, incluso si Redis falla (best-effort).
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Eventos registrados"
+        '400':
+          description: |
+            Validación del body fallida (sessionId vacío, array de eventos vacío, evento sin tipoEvento, etc.)
+          content:
+            application/json:
+              examples:
+                sin_session_id:
+                  summary: sessionId faltante
+                  value:
+                    success: false
+                    error: "Los datos enviados no son válidos"
+                    detalles:
+                      - campo: "sessionId"
+                        mensaje: "El sessionId es obligatorio"
+                array_vacio:
+                  summary: Array de eventos vacío
+                  value:
+                    success: false
+                    error: "Los datos enviados no son válidos"
+                    detalles:
+                      - campo: "eventos"
+                        mensaje: "Debes enviar al menos un evento"
+                tipo_evento_faltante:
+                  summary: Evento sin tipoEvento
+                  value:
+                    success: false
+                    error: "Los datos enviados no son válidos"
+                    detalles:
+                      - campo: "eventos.0.tipoEvento"
+                        mensaje: "El tipo de evento es obligatorio"
         '429':
-          description: Límite de peticiones excedido (Rate Limit).
+          description: Rate limit de telemetría excedido (60 req/min por IP)
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Demasiados eventos detectados. Bloqueo temporal por seguridad."
+              example:
+                error: "Demasiados eventos detectados. Bloqueo temporal por seguridad."
+  # ==========================================================================
+  # API PÚBLICA (VISITANTES / CLIENTES DEL BOT)
+  # ==========================================================================
+  /api/public/chatbot/{slug}/init:
+    get:
+      tags: [API Pública]
+      summary: Inicializar Chatbot
+      description: |
+        Endpoint que llama el widget del chat al abrirse por primera vez. 
+        Devuelve la configuración estética del bot (colores, nombre) y gestiona el `sessionId`.
+        **Validación Zod (superRefine):** Si se envía `hasHistory=true`, es **obligatorio** enviar el `sessionId`.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Enlace público del negocio.
+        - in: query
+          name: sessionId
+          schema:
+            type: string
+          description: ID de sesión almacenado en el localStorage del cliente.
+        - in: query
+          name: hasHistory
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        '200':
+          description: Datos de inicialización obtenidos con éxito. Retorna un nuevo UUID si no había sesión previa.
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  sessionId: "uuid-v4-generado"
+                  hasHistory: false
+                  botData:
+                    botId: "uuid-del-bot"
+                    nombre: "Mi Negocio"
+                    colorPrimario: "#FF0000"
+                    colorSecundario: "#00FF00"
+        '400':
+          description: Validación Zod fallida (ej. hasHistory=true pero falta sessionId).
+          content:
+            application/json:
+              example:
+                success: false
+                error: "El sessionId es obligatorio para recuperar el historial de chat"
+        '404':
+          description: Bot no encontrado o se encuentra inactivo.
+          content:
+            application/json:
+              example:
+                success: false
+                error: "Negocio o bot no encontrado."
+        '429':
+          description: Demasiadas solicitudes a la API (apiLimiter - Max 200 req/min).
+
+  /api/public/chatbot/{slug}/products:
+    get:
+      tags: [API Pública]
+      summary: Obtener catálogo público del bot
+      description: Devuelve únicamente los productos que se encuentran activos (`activo: true`) para el bot correspondiente.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Lista de productos activos obtenida exitosamente.
+        '404':
+          description: Bot no encontrado o inactivo.
+        '429':
+          description: Demasiadas solicitudes a la API (apiLimiter - Max 200 req/min).
+
+  /api/public/chatbot/{slug}/faqs:
+    get:
+      tags: [API Pública]
+      summary: Obtener FAQs públicas del bot
+      description: Devuelve todas las preguntas frecuentes existentes del bot, ordenadas alfabéticamente e incluyendo los datos de su categoría.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Lista de FAQs obtenida exitosamente.
+        '400':
+          description: El slug proporcionado está vacío.
+        '404':
+          description: Bot no encontrado o inactivo.
+        '429':
+          description: Demasiadas solicitudes a la API (apiLimiter - Max 200 req/min).
+
+  /api/public/chatbot/{slug}/consultations:
+    post:
+      tags: [API Pública]
+      summary: Crear una nueva consulta/lead desde el bot
+      description: |
+        Registra una nueva conversación iniciada por el visitante en el widget del chat.
+        `tipoConsulta`, `asunto` y `descripcion` los fija el propio servidor (no son
+        configurables desde el body) — el único identificador relevante que envía el
+        cliente es `sessionId` (o `sessionAnonimaId` como *fallback* si todavía no lo tiene).
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId:
+                  type: string
+                  maxLength: 200
+                sessionAnonimaId:
+                  type: string
+                  maxLength: 200
+                  description: Fallback si sessionId no está definido.
+                canal:
+                  type: string
+                  enum: [web, chatbot]
+                  default: web
+      responses:
+        '201':
+          description: Consulta creada con éxito.
+        '404':
+          description: Bot no encontrado o inactivo.
+
+  /api/public/chatbot/{slug}/consultations/{id}/messages:
+    post:
+      tags: [API Pública]
+      summary: Agregar mensaje del visitante a la consulta
+      description: Guarda en la base de datos un mensaje enviado por el usuario o por el bot dentro de una consulta activa.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emisor, contenido]
+              properties:
+                emisor:
+                  type: string
+                  enum: [CLIENTE, EMPRENDEDOR, BOT]
+                contenido:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+                tipoMensaje:
+                  type: string
+                  enum: [TEXTO, ACCION, PRESUPUESTO]
+                  description: Opcional.
+      responses:
+        '201':
+          description: Mensaje agregado exitosamente.
+        '400':
+          description: Error de validación en el contenido.
+        '404':
+          description: Consulta no encontrada.
+
+  /api/public/chatbot/{slug}/consultations/{id}/contact:
+    patch:
+      tags: [API Pública]
+      summary: Capturar datos de contacto (Convertir a Lead)
+      description: |
+        Actualiza la consulta con los datos de contacto del visitante y la marca como `derivada: true`.
+        **Validación Zod estricta:** Requiere nombre válido y teléfono numérico (8-15 dígitos).
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clienteNombre, clienteTelefono]
+              properties:
+                clienteNombre:
+                  type: string
+                  minLength: 1
+                  maxLength: 150
+                  description: "Regex: /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\\s]{2,50}$/"
+                clienteTelefono:
+                  type: string
+                  minLength: 3
+                  maxLength: 50
+                  description: "Regex: /^\\+?[0-9]{8,15}$/"
+      responses:
+        '200':
+          description: Contacto actualizado exitosamente.
+        '400':
+          description: El nombre o teléfono tienen un formato inválido.
+
+  /api/public/chatbot/{slug}/consultations/{id}/budgets:
+    post:
+      tags: [API Pública]
+      summary: Solicitar presupuesto desde el widget del bot
+      description: |
+        Crea un presupuesto a partir del carrito armado por el visitante durante la conversación.
+        **Regla de negocio:** si alguno de los ítems corresponde a un producto con
+        `requiereCotizacion: true`, el sistema no calcula un total automático — arma un
+        presupuesto pendiente y `requiereCotizacionManual: true`, derivando la consulta a
+        atención humana en vez de cerrar un precio.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID de la consulta sobre la que se solicita el presupuesto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [productoId, cantidad]
+                    properties:
+                      productoId: { type: string, format: uuid }
+                      cantidad: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: Presupuesto creado (automático o pendiente de cotización manual, según el carrito).
+          content:
+            application/json:
+              example:
+                success: true
+                requiereCotizacionManual: false
+                total: 15400.5
+        '400':
+          description: Error de validación (ítems vacíos o `productoId`/`cantidad` inválidos).
+        '404':
+          description: Bot, consulta o alguno de los productos no encontrado.
+
+  # ==========================================================================
+  # MOTOR DEL CHATBOT
+  # ==========================================================================
+  /api/chatbot/chat:
+    post:
+      tags: [Chatbot Engine]
+      summary: Procesar interacción con el bot
+      description: |
+        Motor principal del Chatbot. Gestiona el flujo de la conversación, la memoria de estados, validaciones de regex (nombres y teléfonos), creación de Leads y derivaciones. 
+        **Regla de Negocio:** Si la sesión tiene estado `HUMANO_ATENDIENDO`, el bot se silencia y devuelve un mensaje de bloqueo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, botId]
+              properties:
+                accion:
+                  type: string
+                  minLength: 1
+                  description: "Acción a ejecutar (ej. INICIO, MOSTRAR_CATALOGO, SOLICITAR_PRESUPUESTO, ENVIAR_DATOS). Opcional."
+                sessionId:
+                  type: string
+                  minLength: 1
+                botId:
+                  type: string
+                  minLength: 1
+                contexto:
+                  type: string
+                  description: "Estado actual de la memoria conversacional (ej. ESPERANDO_NOMBRE_COTIZACION)."
+                datosCliente:
+                  type: object
+                  description: "Estructura flexible que almacena inputs del usuario y carritos de compras temporales."
+                  properties:
+                    texto:
+                      type: string
+                    accion:
+                      type: boolean
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          nombre:
+                            type: string
+                          cantidad:
+                            type: integer
+                          precio:
+                            type: number
+                          requiereCotizacion:
+                            type: boolean
+                    datosAcumulados:
+                      type: object
+                      additionalProperties: true
+      responses:
+        '200':
+          description: Respuesta generada por el bot según el árbol de decisión.
+          content:
+            application/json:
+              example:
+                respuesta: "¡Excelente elección! Para poder armar tu presupuesto, por favor escribime tu *Nombre*."
+                botones: []
+                requiereInput: true
+                contexto: "ESPERANDO_NOMBRE_PRESUPUESTO"
+                datosAcumulados: 
+                  carrito: 
+                    - nombre: "Instalación"
+                      cantidad: 1
+                      precio: 5000
+        '400':
+          description: Error de validación Zod en el payload enviado.
+        '429':
+          description: Demasiadas solicitudes a la API (apiLimiter - Max 200 req/min).
         '500':
-          description: Error interno al procesar el mensaje hacia la cola.
+          description: Fallo crítico interno (ej. fallo al insertar el Lead o la Consulta en Prisma).
+          content:
+            application/json:
+              example:
+                error: "Fallo crítico: No se pudo obtener ni crear la consulta en la BD"
+  
+  
+  /api/bot/slug:
+    patch:
+      tags: [Bot]
+      summary: Actualizar enlace público (Slug) del bot
+      description: |
+        Personaliza la URL pública del bot. 
+        **Importante:** Solo se puede modificar una vez. Si ya fue personalizado, devolverá un error 409 Conflict.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug]
+              properties:
+                slug:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: "Nuevo enlace público deseado"
+      responses:
+        '200':
+          description: Enlace público actualizado con éxito.
+        '400':
+          description: Error de validación Zod (slug vacío o mayor a 100 caracteres).
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot no encontrada.
+        '409':
+          description: El enlace público ya fue personalizado y no puede volver a modificarse.
+          content:
+            application/json:
+              example:
+                success: false
+                code: "SLUG_EDIT_ALREADY_USED"
+                field: "slug"
+                error: "El enlace público ya fue personalizado y no puede volver a modificarse."
+
+  /api/bot/{slug}/status:
+    patch:
+      tags: [Bot]
+      summary: Activar o desactivar bot públicamente
+      description: Permite al emprendedor cambiar rápidamente el estado activo/inactivo de su bot utilizando el slug.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [activo]
+              properties:
+                activo:
+                  type: boolean
+                  description: Estado deseado del bot.
+      responses:
+        '200':
+          description: Estado del bot actualizado exitosamente.
+        '400':
+          description: Error de validación (estado no es booleano o falta ID en params).
+        '401':
+          description: No autenticado.
+        '404':
+          description: Bot no encontrado.
+
+  # ==========================================================================
+  # MENSAJERÍA
+  # ==========================================================================
+  /api/mensajes/{slug}/{sessionId}:
+    get:
+      tags: [Mensajería]
+      summary: Obtener historial de chat de una sesión
+      description: |
+        Devuelve la lista completa de mensajes intercambiados en una sesión específica, ordenados cronológicamente.
+        También devuelve el estado actual del control del chat (`estadoChat`: BOT_ACTIVO | HUMANO_ATENDIENDO).
+        **Seguridad:** Permite token opcional (`verificarTokenOpcional`).
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Historial de mensajes obtenido exitosamente.
+          content:
+            application/json:
+              example:
+                estadoChat: "BOT_ACTIVO"
+                mensajes: 
+                  - id: "uuid-mensaje"
+                    emisor: "BOT"
+                    contenido: "¡Hola! ¿En qué te ayudo?"
+        '400':
+          description: Falta el slug o sessionId.
+        '500':
+          description: Error interno al obtener los mensajes.
+
+  # ==========================================================================
+  # CONSULTAS Y LEADS (EMPRENDEDOR)
+  # ==========================================================================
+  /api/consultations:
+    get:
+      tags: [Consultas]
+      summary: Listar todas las consultas
+      description: Obtiene el listado completo de consultas y leads correspondientes al bot del emprendedor autenticado, ordenadas de más a menos reciente.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de consultas obtenida.
+        '401':
+          description: No autenticado.
+
+  /api/consultations/{id}:
+    get:
+      tags: [Consultas]
+      summary: Obtener detalle de una consulta
+      description: |
+        Devuelve toda la información de una consulta específica, incluyendo todos sus mensajes anidados.
+        **Efecto secundario:** si la consulta está `nueva`, se marca automáticamente como `en_proceso`.
+        Si además tiene un presupuesto `PENDIENTE` vinculado, ese presupuesto también pasa a `EN_PROCESO`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Detalle de la consulta obtenido.
+        '404':
+          description: Consulta no encontrada.
+
+  /api/consultations/{id}/estado:
+    patch:
+      tags: [Consultas]
+      summary: Actualizar el estado de la consulta
+      description: |
+        Cambia el estado de atención de la consulta (nueva, en_proceso, resuelta, cerrada).
+        No incluye `iniciada` — ese estado nace solo, antes de que el cliente interactúe, y no se puede asignar manualmente.
+        **Nota:** el bot atiende siempre (no hay traspaso de control a un humano), este cambio de estado es solo para la bandeja del emprendedor.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado:
+                  type: string
+                  enum: [nueva, en_proceso, resuelta, cerrada]
+      responses:
+        '200':
+          description: Estado actualizado con éxito.
+        '404':
+          description: Consulta no encontrada.
+
+  /api/consultations/{id}/mensajes:
+    post:
+      tags: [Consultas]
+      summary: Enviar un mensaje manual (Emprendedor)
+      description: Permite al dueño del negocio responder manualmente a un visitante dentro del hilo de una consulta.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contenido]
+              properties:
+                contenido:
+                  type: string
+                  description: "Texto de la respuesta (mínimo 1 caracter)."
+      responses:
+        '201':
+          description: Mensaje del emprendedor guardado y enviado.
+        '400':
+          description: El contenido está vacío o no es texto.
+        '404':
+          description: Consulta no encontrada.
+
+  /api/consultations/{id}/control-chat:
+    patch:
+      tags: [Consultas]
+      summary: Tomar o liberar control del chat
+      description: Modifica directamente la tabla `SesionChat` para definir si la sesión la está gestionando el `BOT_ACTIVO` o si hay un `HUMANO_ATENDIENDO`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado:
+                  type: string
+                  enum: [BOT_ACTIVO, HUMANO_ATENDIENDO]
+      responses:
+        '200':
+          description: Control de chat actualizado.
+        '404':
+          description: Consulta no tiene un sessionId asociado.
+
+  /api/consultations/{slug}/derivadas:
+    get:
+      tags: [Consultas]
+      summary: Listar consultas derivadas (Bandeja de entrada)
+      description: |
+        Endpoint especial para la bandeja de entrada del emprendedor. Trae las consultas marcadas como `derivada: true` y permite filtrarlas por tipo.
+        Incluye el estado actual de la sesión del chat para saber si el bot está silenciado o no.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: filtro
+          schema:
+            type: string
+            enum: [atencion_personalizada, cotizaciones]
+          description: Permite filtrar entre leads puros de atención y leads con carritos a cotizar.
+      responses:
+        '200':
+          description: Listado de consultas derivadas obtenido con éxito.
+        '500':
+          description: Error interno al obtener las consultas.
+
+# ==========================================================================
+  # PRESUPUESTOS 
+  # ==========================================================================
+  /api/presupuestos:
+    get:
+      tags: [Presupuestos]
+      summary: Listar y filtrar presupuestos
+      description: |
+        Devuelve una lista paginada de presupuestos correspondientes al bot del emprendedor.
+        Permite filtrar por origen y por estado actual del presupuesto.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: origen
+          schema:
+            type: string
+            enum: [EMPRENDEDOR, CHATBOT]
+          description: Filtrar por el origen del presupuesto (quién lo generó).
+        - in: query
+          name: estado
+          schema:
+            type: string
+            enum: [PENDIENTE, EN_PROCESO, ENVIADO, CONCRETADO, RECHAZADO]
+          description: Filtrar por el estado del presupuesto.
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+          description: Número de página.
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+          description: Cantidad de resultados por página.
+      responses:
+        '200':
+          description: Lista de presupuestos filtrada y paginada obtenida con éxito.
+        '400':
+          description: Error de validación en los parámetros de búsqueda.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot no encontrada.
+
+  /api/presupuestos/{id}:
+    get:
+      tags: [Presupuestos]
+      summary: Obtener detalle de un presupuesto (con cambio automático a EN_PROCESO)
+      description: |
+        Devuelve la información detallada de un presupuesto mediante su ID. 
+        **Regla de Negocio:** Si el estado actual del presupuesto es `PENDIENTE` y el emprendedor lo visualiza, pasará automáticamente al estado `EN_PROCESO`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            pattern: '^\d+$'
+          description: ID numérico del presupuesto.
+      responses:
+        '200':
+          description: Presupuesto obtenido exitosamente.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Presupuesto no encontrado o no pertenece a tu bot.
+
+  /api/presupuestos/{id}/estado:
+    patch:
+      tags: [Presupuestos]
+      summary: Cambiar estado de un presupuesto manualmente
+      description: |
+        Permite al emprendedor forzar un cambio de estado en el presupuesto hacia cualquier estado válido del ciclo de vida.
+        **Efectos secundarios sobre la consulta vinculada:** `CONCRETADO` → la consulta pasa a `RESUELTA`. `RECHAZADO` → la consulta pasa a `EN_PROCESO`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            pattern: '^\d+$'
+          description: ID numérico del presupuesto.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado:
+                  type: string
+                  enum: [PENDIENTE, EN_PROCESO, ENVIADO, CONCRETADO, RECHAZADO]
+                  description: El nuevo estado que se le asignará al presupuesto.
+      responses:
+        '200':
+          description: Estado del presupuesto actualizado exitosamente.
+        '400':
+          description: El estado enviado no es válido según los esquemas permitidos.
+        '401':
+          description: No autenticado.
+        '404':
+          description: Presupuesto no encontrado.
+
+  /api/presupuestos/{id}/cotizar:
+    put:
+      tags: [Presupuestos]
+      summary: Cotizar un presupuesto y generar el PDF formal
+      description: |
+        Permite al emprendedor ingresar los valores finales a los ítems de un presupuesto pendiente.
+        
+        **Lo que hace internamente:**
+        1. Actualiza los valores en la base de datos y cambia el estado a `ENVIADO`.
+        2. Genera un documento PDF con formato formal (colores, logo, tabla de precios) usando PDFKit.
+        3. Sube el documento a Cloudinary.
+        4. Borra el archivo local y guarda la URL segura en la base de datos.
+        5. La consulta vinculada pasa automáticamente a `RESUELTA`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            pattern: '^\d+$'
+          description: ID numérico del presupuesto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [itemsCotizados]
+              properties:
+                itemsCotizados:
+                  type: array
+                  minItems: 1
+                  description: "Lista de ítems con sus precios definidos. Debe contener al menos un elemento."
+                  items:
+                    type: object
+                    required: [nombre, cantidad, precioUnitario]
+                    properties:
+                      nombre:
+                        type: string
+                        minLength: 1
+                        example: "Diseño de Marca"
+                      cantidad:
+                        type: number
+                        exclusiveMinimum: 0
+                        example: 1
+                      precioUnitario:
+                        type: number
+                        minimum: 0
+                        example: 45000.50
+      responses:
+        '200':
+          description: Presupuesto cotizado, base de datos actualizada y PDF generado exitosamente en Cloudinary.
+          content:
+            application/json:
+              example:
+                mensaje: "Presupuesto cotizado, actualizado y PDF generado con éxito."
+                rutaPdf: "https://res.cloudinary.com/micloud/image/upload/v1234/presupuestos_clientes/presupuesto_N123_Cliente_01-01-2026.pdf"
+        '400':
+          description: Error de validación Zod (ej. el ID no es numérico o un precio es negativo).
+        '401':
+          description: No autenticado o falta el token del emprendedor.
+        '500':
+          description: Error interno al generar el PDF mediante PDFKit o falló la subida a Cloudinary.
+
+  # ==========================================================================
+  # MÉTRICAS
+  # ==========================================================================
+  /api/metricas/dashboard:
+    get:
+      tags: [Métricas]
+      summary: Resumen rápido para la pantalla principal del dashboard
+      description: |
+        Contadores livianos para la vista de inicio del panel del emprendedor
+        (no incluye series de tiempo — para eso ver `/api/metricas/reportes`).
+        `automatizacionEstimada` cuenta: consultas resueltas por timeout de 60 min sin
+        interacción, MÁS presupuestos 100% automáticos del bot que el emprendedor todavía
+        no abrió (dejan de contar apenas los abre, porque pasan a `EN_PROCESO`).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Resumen obtenido con éxito.
+          content:
+            application/json:
+              example:
+                consultasPendientes: 4
+                presupuestosRegistrados: 12
+                automatizacionEstimada:
+                  porcentaje: 68
+                  texto: "17 de 25 consultas fueron resueltas por el bot"
+                consultasResueltas: 17
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot no encontrada.
+
+  /api/metricas/reportes:
+    get:
+      tags: [Métricas]
+      summary: Estadísticas completas para la sección de reportes/analítica
+      description: |
+        Incluye totales generales, tasa de conversión, estado de los presupuestos agrupados,
+        y la evolución de los últimos 7 días (consultas y presupuestos por día). Los días se
+        calculan en huso horario de Argentina (America/Argentina/Buenos_Aires), no en UTC.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Estadísticas obtenidas con éxito.
+          content:
+            application/json:
+              example:
+                resumenTotal:
+                  conversaciones: 132
+                  presupuestos: 40
+                  ventasConcretadas: 18
+                  tasaConversion: 14
+                  derivadasAPersona: 22
+                evolucionSemanal:
+                  - dia: "Lun"
+                    consultas: 9
+                    presupuestos: 3
+                  - dia: "Mar"
+                    consultas: 12
+                    presupuestos: 5
+                estadoPresupuestos:
+                  - estado: "Pendiente"
+                    cantidad: 6
+                  - estado: "Enviado"
+                    cantidad: 16
+                  - estado: "Concretado"
+                    cantidad: 18
+        '401':
+          description: No autenticado.
+        '404':
+          description: Configuración de bot no encontrada.

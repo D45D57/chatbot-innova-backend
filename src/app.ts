@@ -3,6 +3,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yamljs';
+
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
 import faqCategoryRoutes from './routes/faq-category.routes';
@@ -10,17 +11,26 @@ import faqRoutes from './routes/faq.routes';
 import botRoutes from './routes/bot.routes';
 import productRoutes from './routes/product.routes';
 import telemetryRoutes from './routes/telemetry.routes';
+
 import { errorHandler } from './middlewares/error.middleware';
 import prisma from './lib/prisma';
+
+// ---> LÍNEA NUEVA/CAMBIADA: Importamos la configuración correcta desde la carpeta lib que vimos en tu captura
+import { corsOptions } from './lib/cors.config';
+import publicRoutes from './routes/public.routes';
+import chatbotRoutes from './routes/chatbot.routes';
+import consultationRoutes from './routes/consultation.routes';
+import mensajeRoutes from './routes/mensaje.routes';
+import presupuestoRoutes from './routes/presupuesto.routes';
+import metricasRoutes from './routes/metricas.routes';
+
 
 const app = express();
 
 app.set('trust proxy', 1);
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
-}));
+// ---> LÍNEA NUEVA/CAMBIADA: Usamos la configuración importada en lugar del código duplicado que rompía Vercel
+app.use(cors(corsOptions));
 
 app.use(express.json());
 
@@ -56,27 +66,29 @@ const swaggerDocument = YAML.load('./swagger.yaml');
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 app.get('/health', async (req: Request, res: Response) => {
-  try{
+  try {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: 'OK', db: 'connected', timestamp: new Date().toISOString() });
-  }
-  catch{
+  } catch {
     res.status(503).json({ status: 'ERROR', db: 'disconnected', timestamp: new Date().toISOString() });
   }
- 
 });
 
 app.use(globalLimiter);
-app.use('/api', apiLimiter);
 
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/faq-categories', faqCategoryRoutes);
-app.use('/api/faqs', faqRoutes);
-app.use('/api/bot', botRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/telemetry', telemetryRoutes);
-
+app.use('/api/user', apiLimiter, userRoutes);
+app.use('/api/faq-categories', apiLimiter, faqCategoryRoutes);
+app.use('/api/faqs', apiLimiter, faqRoutes);
+app.use('/api/bot', apiLimiter, botRoutes);
+app.use('/api/products', apiLimiter, productRoutes);
+app.use('/api/telemetry', apiLimiter, telemetryRoutes);
+app.use('/api/public', apiLimiter, publicRoutes);
+app.use('/api/chatbot', apiLimiter, chatbotRoutes);
+app.use('/api/consultations', apiLimiter, consultationRoutes);
+app.use('/api/mensajes', apiLimiter, mensajeRoutes);
+app.use('/api/presupuestos', apiLimiter, presupuestoRoutes);
+app.use('/api/metricas', apiLimiter, metricasRoutes);
 app.use(errorHandler);
 
 export default app;

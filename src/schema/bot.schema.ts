@@ -1,7 +1,18 @@
 import { z } from 'zod';
 
+const hexColorSchema = z
+  .string()
+  .regex(/^#[0-9A-Fa-f]{6}$/, {
+    error: 'El color debe tener formato hexadecimal #RRGGBB',
+  })
+  .transform((value) => value.toUpperCase());
+
 export const updateBotSchema = z.object({
-  activo: z.boolean().optional(),
+  activo: z.preprocess((val) => {
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    return val; 
+  }, z.boolean().optional()),
 
   nombreNegocio: z
     .string()
@@ -59,6 +70,30 @@ export const updateBotSchema = z.object({
   derivacionAutomatica: z
     .boolean()
     .optional(),
+
+  colorPrimario: hexColorSchema.optional(),
+
+  colorSecundario: hexColorSchema.optional(),
+});
+
+export const updateSlugSchema = z.object({
+  slug: z
+    .string({ error: 'El enlace público es obligatorio' })
+    .trim()
+    .min(1, { error: 'El enlace público no puede estar vacío' })
+    .max(100, { error: 'El enlace público no puede superar los 100 caracteres' }),
+});
+
+export const toggleBotStatusSchema = z.object({
+  params: z.object({
+    slug: z.string().min(1, 'El slug del bot es requerido'),
+  }),
+  body: z.object({
+    activo: z.boolean({
+      error: 'El estado debe ser verdadero o falso',
+    }),
+  }),
 });
 
 export type UpdateBotInput = z.infer<typeof updateBotSchema>;
+export type toggleBotStatusSchema = z.infer<typeof updateBotSchema>;
